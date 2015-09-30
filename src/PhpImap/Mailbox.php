@@ -2,7 +2,10 @@
 
 namespace PhpImap;
 
-use stdClass;
+use stdClass
+  , Exception
+  , PhpImap\Mail
+  , PhpImap\Attachment;
 
 /**
  * @see https://github.com/mikegioia/php-imap
@@ -11,7 +14,7 @@ use stdClass;
  * @see https://github.com/barbushin/php-imap
  * @author Barbushin Sergey http://linkedin.com/in/barbushin
  */
-class Mailbox 
+class Mailbox
 {
     protected $imapPath;
     protected $imapLogin;
@@ -22,29 +25,40 @@ class Mailbox
     protected $imapOptions = 0;
     protected $imapRetriesNum = 0;
 
-    function __construct( $imapPath, $login, $password, $attachmentsDir = NULL, $serverEncoding = 'UTF-8') {
-        $this->imapPath = $imapPath;
+    /**
+     * Sets up a new mailbox object with the IMAP credentials to connect.
+     * @param string $imapPath
+     * @param string $login
+     * @param string $password
+     * @param string $attachmentsDir
+     * @param string $serverEncoding
+     */
+    function __construct( $imapPath, $login, $password, $attachmentsDir = NULL, $serverEncoding = 'UTF-8' ) {
         $this->imapLogin = $login;
+        $this->imapPath = $imapPath;
         $this->imapPassword = $password;
-        $this->serverEncoding = strtoupper($serverEncoding);
-        if($attachmentsDir) {
-            if(!is_dir($attachmentsDir)) {
-                throw new Exception('Directory "' . $attachmentsDir . '" not found');
+        $this->serverEncoding = strtoupper( $serverEncoding );
+
+        if ( $attachmentsDir ) {
+            if ( ! is_dir( $attachmentsDir ) ) {
+                throw new Exception( "Directory '$attachmentsDir' not found" );
             }
-            $this->attachmentsDir = rtrim(realpath($attachmentsDir), '\\/');
+
+            $this->attachmentsDir = rtrim( realpath( $attachmentsDir ), '\\/' );
         }
     }
 
     /**
-     * Set custom connection arguments of imap_open method. See http://php.net/imap_open
+     * Set custom connection arguments of imap_open method. For more info, see
+     * http://php.net/imap_open
      * @param int $options
      * @param int $retriesNum
      * @param array $params
      */
-    public function setConnectionArgs($options = 0, $retriesNum = 0, array $params = NULL) {
+    public function setConnectionArgs( $options = 0, $retriesNum = 0, array $params = NULL ) {
+        $this->imapParams = $params;
         $this->imapOptions = $options;
         $this->imapRetriesNum = $retriesNum;
-        $this->imapParams = $params;
     }
 
     /**
@@ -610,5 +624,3 @@ class Mailbox
         $this->disconnect();
     }
 }
-
-class Exception extends \Exception {}
