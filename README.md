@@ -11,43 +11,48 @@ ImapMailbox is PHP class to access mailbox by POP3/IMAP/NNTP using IMAP extensio
 
 ### Installation by Composer
 
-	{
-		"require": {
-			"php-imap/php-imap": "~2.0"
-		}
-	}
+    {
+        "require": {
+            "mikegioia/php-imap": "~2.0"
+        }
+    }
 
 Or
 
-	$ composer require php-imap/php-imap ~2.0
+    $ composer require mikegioia/php-imap ~2.0
 
-### Migration from `v1.*` to `v2.*`
-
-Just add following code in the head of your script:
-
-	use PhpImap\Mailbox as ImapMailbox;
-	use PhpImap\IncomingMail;
-	use PhpImap\IncomingMailAttachment;
-
-### [Usage example](https://github.com/barbushin/php-imap/blob/master/example/index.php)
+### [Usage Example](https://github.com/mikegioia/php-imap/blob/master/example/index.php)
 
 ```php
-$mailbox = new PhpImap\Mailbox('{imap.gmail.com:993/imap/ssl}INBOX', 'some@gmail.com', '*********', __DIR__);
-$mails = array();
+$mailbox = new \PhpImap\Mailbox(
+    '{imap.gmail.com:993/imap/ssl}INBOX',
+    'some@gmail.com',
+    '*********',
+    __DIR__ );
+$mailIds = $mailbox->searchMailBox( 'ALL' );
 
-$mailsIds = $mailbox->searchMailBox('ALL');
-if(!$mailsIds) {
-	die('Mailbox is empty');
+if ( !$mailIds ) {
+    die( 'Mailbox is empty' );
 }
 
-$mailId = reset($mailsIds);
-$mail = $mailbox->getMail($mailId);
+$mailId = reset( $mailIds );
+$mail = $mailbox->getMail( $mailId );
 
-var_dump($mail);
-var_dump($mail->getAttachments());
+var_dump( $mail );
+var_dump( $mail->getAttachments() );
 ```
 
-### Recommended
+### Notes
 
-* Google Chrome extension [PHP Console](https://chrome.google.com/webstore/detail/php-console/nfhmhhlpfleoednkpnnnkolmclajemef)
-* Google Chrome extension [JavaScript Errors Notifier](https://chrome.google.com/webstore/detail/javascript-errors-notifie/jafmfknfnkoekkdocjiaipcnmkklaajd)
+This project was forked from Sergey Barbushin's PHP-IMAP library because I
+wanted something formatted in my coding style, to use namespaces, and to
+use conventions of my own. I also wanted a way to change the default path
+that attachments were stored so this includes a fix for that as well.
+
+This is in no way intended as a suggested
+alternative to Sergey's library, but I did update the licensing and copyright
+info to reflect that modifications henceforward are made by the new authors.
+
+This will diverge and probably never incorporate future changes from the
+parent project, but I feel it's complete enough that that doesn't matter.
+This project retains the original BSD 3-Clause license.
