@@ -700,7 +700,7 @@ class Mailbox
                 $fileName = $attachmentId .'.'. strtolower( $partStructure->subtype );
             }
             else {
-                $fileName = ( ! empty( $params[ 'filename' ] )
+                $fileName = ( ! empty( $params[ 'filename' ] ) )
                     ? $params[ 'filename' ]
                     : $params[ 'name' ];
                 $fileName = $this->decodeMimeStr( $fileName, $this->serverEncoding );
