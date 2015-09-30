@@ -7,7 +7,7 @@
 		"mail"
 	],
 	"homepage": "https://github.com/mikegioia/php-imap",
-	"license": "BSD 3-Clause",
+	"license": "BSD-3-Clause",
 	"type": "library",
 	"authors": [
 		{
@@ -26,7 +26,7 @@
 	},
 	"autoload": {
 		"psr-4": {
-			"PhpImap": "src/"
+			"PhpImap\\": "src/PhpImap/"
 		}
 	},
 	"minimum-stability": "stable"
