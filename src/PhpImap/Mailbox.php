@@ -545,7 +545,7 @@ class Mailbox
                 FT_UID
             ));
         $mail->id = $mailId;
-        $date = ( isset( $head->date )
+        $date = ( isset( $head->date ) )
             ? strtotime( preg_replace( '/\(.*?\)/', '', $head->date ) )
             : time();
         $mail->date = date('Y-m-d H:i:s', $date );
