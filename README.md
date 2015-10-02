@@ -21,7 +21,7 @@ Or
 
     $ composer require mikegioia/php-imap ~2.0
 
-### [Usage Example](https://github.com/mikegioia/php-imap/blob/master/example/index.php)
+### Usage Example
 
 ```php
 $mailbox = new \PhpImap\Mailbox(

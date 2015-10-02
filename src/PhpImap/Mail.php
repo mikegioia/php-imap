@@ -24,14 +24,16 @@ class Mail
      */
 	protected $attachments = [];
 
-	public function addAttachment( Attachment $attachment ) {
+	public function addAttachment( Attachment $attachment )
+    {
 		$this->attachments[ $attachment->id ] = $attachment;
 	}
 
 	/**
 	 * @return Attachment[]
 	 */
-	public function getAttachments() {
+	public function getAttachments()
+    {
 		return $this->attachments;
 	}
 
@@ -39,7 +41,8 @@ class Mail
 	 * Get array of internal HTML links placeholders
 	 * @return array attachmentId => link placeholder
 	 */
-	public function getInternalLinksPlaceholders() {
+	public function getInternalLinksPlaceholders()
+    {
 		$matchAll = preg_match_all(
             '/=["\'](ci?d:([\w\.%*@-]+))["\']/i',
             $this->textHtml,
@@ -52,7 +55,8 @@ class Mail
         return [];
 	}
 
-	public function replaceInternalLinks( $baseUri ) {
+	public function replaceInternalLinks( $baseUri )
+    {
         $fetchedHtml = $this->textHtml;
 		$baseUri = rtrim( $baseUri, '\\/' ) . '/';
         $placeholders = $this->getInternalLinksPlaceholders();

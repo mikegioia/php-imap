@@ -506,7 +506,7 @@ class Mailbox
     {
         $quota = $this->getQuota();
 
-        if( is_array( $quota ) ) {
+        if ( is_array( $quota ) ) {
             $quota = $quota[ 'STORAGE' ][ 'limit' ];
         }
 
@@ -521,7 +521,7 @@ class Mailbox
     {
         $quota = $this->getQuota();
 
-        if( is_array( $quota ) ) {
+        if ( is_array( $quota ) ) {
             $quota = $quota[ 'STORAGE' ][ 'usage' ];
         }
 
@@ -560,7 +560,7 @@ class Mailbox
         $mail->fromAddress = strtolower(
             $head->from[ 0 ]->mailbox .'@'. $head->from[ 0 ]->host );
 
-        if( isset( $head->to ) ) {
+        if ( isset( $head->to ) ) {
             $toStrings = [];
 
             foreach ( $head->to as $to ) {
@@ -693,7 +693,7 @@ class Mailbox
         // be reproducible.
         $attachmentId = ( $partStructure->ifid )
             ? trim( $partStructure->id, " <>" )
-            : $this->generateAttachmentId( $params );
+            : $this->generateAttachmentId( $params, $mail, $partNum );
 
         if ( $attachmentId ) {
             if ( empty( $params[ 'filename' ] ) && empty( $params[ 'name' ] ) ) {
@@ -708,9 +708,16 @@ class Mailbox
             }
 
             $attachment = new Attachment();
-            $attachment->id = $attachmentId;
             $attachment->name = $fileName;
+            $attachment->id = $attachmentId;
+            $attachment->origName = ( ! empty( $params[ 'name' ] ) )
+                ? $params[ 'name' ]
+                : NULL;
+            $attachment->origFileName = ( ! empty( $params[ 'filename' ] ) )
+                ? $params[ 'filename' ]
+                : NULL;
 
+            // Attachments are saved in YYYY/MM directories
             if ( $this->attachmentsDir) {
                 $replace = [
                     '/\s/' => '_',
@@ -726,7 +733,16 @@ class Mailbox
                         $replace,
                         $fileName
                     ));
-                $attachment->filePath = $this->attachmentsDir
+                // Create the YYYY/MM directory to put the attachment into
+                $fullDatePath = sprintf(
+                    "%s%s%s%s%s",
+                    $this->attachmentsDir,
+                    DIRECTORY_SEPARATOR,
+                    date( 'Y', strtotime( $mail->date ) ),
+                    DIRECTORY_SEPARATOR,
+                    date( 'm', strtotime( $mail->date ) ));
+                @mkdir( $fullDatePath, 0755, TRUE );
+                $attachment->filePath = $fullDatePath
                     . DIRECTORY_SEPARATOR
                     . $fileSysName;
                 file_put_contents( $attachment->filePath, $data );
@@ -781,7 +797,7 @@ class Mailbox
         $newString = '';
         $elements = imap_mime_header_decode( $string );
 
-        for( $i = 0; $i < count( $elements ); $i++ ) {
+        for ( $i = 0; $i < count( $elements ); $i++ ) {
             if ( $elements[ $i ]->charset == 'default' ) {
                 $elements[ $i ]->charset = 'iso-8859-1';
             }
@@ -809,10 +825,27 @@ class Mailbox
      * @param array $params
      * @return string
      */
-    protected function generateAttachmentId( $params )
+    protected function generateAttachmentId( $params, $mail, $partNum )
     {
-        print_r($params);exit;
-        //(isset($params['filename']) || isset($params['name']) ? mt_rand() . mt_rand() : NULL);
+        // If both are missing, then this isn't an attachment
+        if ( ! isset( $params[ 'filename' ] )
+            && ! isset( $params[ 'name' ] ) )
+        {
+            return NULL;
+        }
+
+        // Unique ID is a concatenation of the unique ID and a
+        // hash of the combined date, from address, subject line,
+        // part number, and message ID.
+        return md5(
+            sprintf(
+                "%s-%s-%s-%s-%s",
+                $mail->date,
+                $mail->fromAddress,
+                $mail->subject,
+                $partNum,
+                $mail->messageId
+            ));
     }
 
     protected function decodeRFC2231( $string, $charset = 'utf-8' )
