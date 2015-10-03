@@ -733,6 +733,9 @@ class Mailbox
                         $replace,
                         $fileName
                     ));
+                // Truncate the sys name if it's too long. This will throw an
+                // error in file_put_contents.
+                $fileSysName = substr( $fileSysName, 0, 250 );
                 // Create the YYYY/MM directory to put the attachment into
                 $fullDatePath = sprintf(
                     "%s%s%s%s%s",
