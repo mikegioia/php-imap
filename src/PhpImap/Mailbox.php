@@ -26,6 +26,8 @@ class Mailbox
     protected $imapOptions = 0;
     protected $imapRetriesNum = 0;
 
+    private $debugMode = FALSE;
+
     /**
      * Sets up a new mailbox object with the IMAP credentials to connect.
      * @param string $imapPath
@@ -39,10 +41,12 @@ class Mailbox
         $login,
         $password,
         $attachmentsDir = NULL,
-        $serverEncoding = 'UTF-8' )
+        $serverEncoding = 'UTF-8',
+        $debugMode = FALSE )
     {
         $this->imapLogin = $login;
         $this->imapPath = $imapPath;
+        $this->debugMode = $debugMode;
         $this->imapPassword = $password;
         $this->serverEncoding = strtoupper( $serverEncoding );
 
@@ -641,6 +645,7 @@ class Mailbox
             $options |= FT_PEEK;
         }
 
+        $this->debug( "Before fetching IMAP body ($partNum)" );
         $data = ( $partNum )
             ? imap_fetchbody(
                 $this->getImapStream(),
@@ -691,9 +696,11 @@ class Mailbox
         // Process attachments. This will look for an ID saved to the mail part
         // and if one doesn't exist, it'll be created. The created IDs should
         // be reproducible.
+        $this->debug( "After processing data" );
         $attachmentId = ( $partStructure->ifid )
             ? trim( $partStructure->id, " <>" )
             : $this->generateAttachmentId( $params, $mail, $partNum );
+        $this->debug( "Generated attachment ID" );
 
         if ( $attachmentId ) {
             if ( empty( $params[ 'filename' ] ) && empty( $params[ 'name' ] ) ) {
@@ -707,6 +714,7 @@ class Mailbox
                 $fileName = $this->decodeRFC2231( $fileName, $this->serverEncoding );
             }
 
+            $this->debug( "Set up filename for attachment" );
             $attachment = new Attachment();
             $attachment->name = $fileName;
             $attachment->id = $attachmentId;
@@ -716,6 +724,7 @@ class Mailbox
             $attachment->origFileName = ( ! empty( $params[ 'filename' ] ) )
                 ? $params[ 'filename' ]
                 : NULL;
+            $this->debug( "New attachment created" );
 
             // Attachments are saved in YYYY/MM directories
             if ( $this->attachmentsDir) {
@@ -748,7 +757,9 @@ class Mailbox
                 $attachment->filePath = $fullDatePath
                     . DIRECTORY_SEPARATOR
                     . $fileSysName;
+                $this->debug( "Before writing attachment to disk" );
                 file_put_contents( $attachment->filePath, $data );
+                $this->debug( "After file_put_contents finished" );
             }
 
             $mail->addAttachment( $attachment );
@@ -773,8 +784,14 @@ class Mailbox
                 $mail->textPlain .= trim( $data );
             }
         }
+
+        unset( $data );
+        $this->debug( "Unset data (imap_body) variable" );
+
         if ( ! empty( $partStructure->parts ) ) {
             foreach ( $partStructure->parts as $subPartNum => $subPartStructure ) {
+                $this->debug( "Recursively calling initMailPart" );
+
                 if ( $partStructure->type == 2
                     && $partStructure->subtype == 'RFC822' )
                 {
@@ -895,6 +912,27 @@ class Mailbox
         }
 
         return ( $convertedString ) ?: $string;
+    }
+
+    public function debug( $message )
+    {
+        if ( ! $this->debugMode ) {
+            return;
+        }
+
+        $date = new \DateTime();
+
+        echo sprintf(
+            "[%s] %s MB peak, %s MB cur -- %s%s",
+            $date->format( 'Y-m-d H:i:s' ),
+            number_format(
+                memory_get_peak_usage( TRUE ) / 1024 / 1024,
+                2 ),
+            number_format(
+                memory_get_usage( TRUE ) / 1024 / 1024,
+                2 ),
+            $message,
+            PHP_EOL );
     }
 
     public function __destruct()
