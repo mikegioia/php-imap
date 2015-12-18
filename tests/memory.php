@@ -27,30 +27,59 @@ if ( ! file_exists( __DIR__ .'/attachments' ) ) {
     mkdir( __DIR__ .'/attachments', TRUE );
 }
 
+$pid = getmypid();
+$message = <<<STR
+My PID is: $pid
+Run this in another terminal:
+$> watch -n 1 ps -o vsz $pid
+
+STR;
+echo $message;
+for ( $i = 9; $i >= 1; $i-- ) {
+    echo "\r$i";
+    sleep( 1 );
+}
+echo "\rStarting...", PHP_EOL;
+
 $index = 1;
 $config = parse_ini_file( __DIR__ .'/secret.ini' );
 $email = ( isset( $config[ 'email' ] ) ) ? $config[ 'email' ] : "";
 $folder = ( isset( $config[ 'folder' ] ) ) ? $config[ 'folder' ] : "";
 $password = ( isset( $config[ 'password' ] ) ) ? $config[ 'password' ] : "";
 $mailbox = new \PhpImap\Mailbox(
-    "{imap.gmail.com:993/imap/ssl}$folder",
+    "imap.gmail.com",
     $email,
     $password,
+    $folder,
     __DIR__ .'/attachments',
-    "UTF-8",
     TRUE );
 
 $mailbox->debug( "Starting search" );
-$mailIds = $mailbox->searchMailBox( 'ALL' );
-$count = count( $mailIds );
-$mailbox->debug( "Fetched $count mailbox IDs" );
+$messageIds = $mailbox->search( 'ALL' );
+$count = count( $messageIds );
+$mailbox->debug( "Fetched $count message IDs" );
 
-foreach ( $mailIds as $mailId ) {
-    $mailbox->debug( "Fetching mail $index of $count" );
-    $mail = $mailbox->getMail( $mailId );
-    $mailbox->debug( "After mail was pulled" );
-    unset( $mail );
-    $mailbox->debug( "After mail was unset()" );
+foreach ( $messageIds as $messageId ) {
+    $mailbox->debug( "Fetching message $index of $count" );
+    // Get the info, headers, and flags
+    try {
+        $info = $mailbox->getMessageInfo( $messageId );
+    }
+    catch ( \Exception $e ) {}
+    $mailbox->debug( "After message info was fetched" );
+    $info = NULL;
+    unset( $info );
+    $mailbox->debug( "After info was unset()" );
+    // Pull the contents of the message
+    try {
+        $message = $mailbox->getMessage( $messageId );
+    }
+    catch ( \Exception $e ) {}
+    $mailbox->debug( "After message info was downloaded" );
+    $message = NULL;
+    unset( $message );
+    $mailbox->debug( "After message was unset()" );
+    // Cleanup
     $mailbox->debug( str_repeat( "-", 20 ) );
     $index++;
     gc_collect_cycles();

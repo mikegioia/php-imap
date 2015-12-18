@@ -4,8 +4,10 @@ namespace PhpImap;
 
 use stdClass
   , Exception
+  , PhpImap\Imap
   , PhpImap\Mail
-  , PhpImap\Attachment;
+  , PhpImap\Attachment
+  , RecursiveIteratorIterator as Iterator;
 
 /**
  * Author of this library:
@@ -17,10 +19,10 @@ use stdClass
  */
 class Mailbox
 {
-    protected $imapPath;
+    protected $imapHost;
     protected $imapLogin;
+    protected $imapFolder;
     protected $imapPassword;
-    protected $serverEncoding;
     protected $attachmentsDir;
     protected $imapParams = [];
     protected $imapOptions = 0;
@@ -28,27 +30,31 @@ class Mailbox
 
     private $debugMode = FALSE;
 
+    // Internal reference to IMAP connection
+    static protected $imapStream;
+
     /**
      * Sets up a new mailbox object with the IMAP credentials to connect.
-     * @param string $imapPath
+     * @param string $hostname
      * @param string $login
      * @param string $password
+     * @param string $folder
      * @param string $attachmentsDir
-     * @param string $serverEncoding
+     * @param bool $debugMode
      */
     function __construct(
-        $imapPath,
+        $hostname,
         $login,
         $password,
+        $folder = 'INBOX',
         $attachmentsDir = NULL,
-        $serverEncoding = 'UTF-8',
         $debugMode = FALSE )
     {
         $this->imapLogin = $login;
-        $this->imapPath = $imapPath;
+        $this->imapHost = $hostname;
+        $this->imapFolder = $folder;
         $this->debugMode = $debugMode;
         $this->imapPassword = $password;
-        $this->serverEncoding = strtoupper( $serverEncoding );
 
         if ( $attachmentsDir ) {
             if ( ! is_dir( $attachmentsDir ) ) {
@@ -60,60 +66,30 @@ class Mailbox
     }
 
     /**
-     * Set custom connection arguments of imap_open method. For more info, see
-     * http://php.net/imap_open
-     * @param int $options
-     * @param int $retriesNum
-     * @param array $params
-     */
-    public function setConnectionArgs(
-        $options = 0,
-        $retriesNum = 0,
-        array $params = NULL )
-    {
-        $this->imapParams = $params;
-        $this->imapOptions = $options;
-        $this->imapRetriesNum = $retriesNum;
-    }
-
-    /**
      * Get IMAP mailbox connection stream
-     * @param bool $forceConnection Initialize connection if it's not already
-     * @return NULL|resource
+     * @return NULL|Zend\Mail\Protocol\Imap
      */
-    public function getImapStream( $forceConnection = TRUE )
+    public function getImapStream()
     {
-        static $imapStream;
-
-        if ( $forceConnection ) {
-            if ( $imapStream
-                && ( ! is_resource( $imapStream )
-                    || ! imap_ping( $imapStream ) ) )
-            {
-                $this->disconnect();
-                $imapStream = NULL;
-            }
-
-            if ( ! $imapStream ) {
-                $imapStream = $this->initImapStream();
-            }
+        if ( ! self::$imapStream ) {
+            self::$imapStream = $this->initImapStream();
         }
 
-        return $imapStream;
+        return self::$imapStream;
     }
 
     protected function initImapStream()
     {
-        $imapStream = @imap_open(
-            $this->imapPath,
-            $this->imapLogin,
-            $this->imapPassword,
-            $this->imapOptions,
-            $this->imapRetriesNum,
-            $this->imapParams );
+        $imapStream = new Imap([
+            'ssl' => 'SSL',
+            'host' => $this->imapHost,
+            'user' => $this->imapLogin,
+            'folder' => $this->imapFolder,
+            'password' => $this->imapPassword
+        ]);
 
         if ( ! $imapStream ) {
-            throw new Exception( 'Connection error: ' . imap_last_error() );
+            throw new Exception( 'Failed to connect to IMAP mailbox' );
         }
 
         return $imapStream;
@@ -121,85 +97,64 @@ class Mailbox
 
     protected function disconnect()
     {
-        $imapStream = $this->getImapStream( FALSE );
+        $imapStream = $this->getImapStream();
 
-        if ( $imapStream && is_resource( $imapStream ) ) {
-            imap_close( $imapStream, CL_EXPUNGE );
+        if ( $imapStream ) {
+            $imapStream->close();
         }
     }
 
     /**
-     * Get information about the current mailbox.
+     * Get information about the current mailbox. Flags and a count
+     * of messages are returned in the response array.
      *
      * Returns the information in an object with following properties:
-     *   Date - current system time formatted according to RFC2822
-     *   Driver - protocol used to access this mailbox: POP3, IMAP, NNTP
-     *   Mailbox - the mailbox name
-     *   Nmsgs - number of mails in the mailbox
-     *   Recent - number of recent mails in the mailbox
+     *   Name - folder name
+     *   Count - number of messages in mailbox
+     *   Flags - any flags on the folder
      *
      * @return stdClass
      */
-    public function checkMailbox()
+    public function status( $folder = NULL )
     {
-        return imap_check( $this->getImapStream() );
+        $info = new stdClass();
+        $folder = $folder ?: $this->imapFolder;
+        $examine = $this->getImapStream()->examineFolder( $folder );
+
+        // Set response defaults
+        $info->count = 0;
+        $info->flags = [];
+        $info->name = $folder;
+
+        if ( ! $examine ) {
+            return $info;
+        }
+
+        $info->flags = $examine[ 'flags' ];
+        $info->count = $examine[ 'exists' ];
+
+        return $info;
     }
 
     /**
-     * Creates a new mailbox specified by mailbox.
-     *
-     * @return bool
-     */
-    public function createMailbox()
-    {
-        return imap_createmailbox(
-            $this->getImapStream(),
-            imap_utf7_encode( $this->imapPath ) );
-    }
-
-    /**
-     * Gets status information about the given mailbox.
-     *
-     * This function returns an object containing status information.
-     * The object has the following properties:
-     *   messages, recent, unseen, uidnext, and uidvalidity.
-     *
-     * @return stdClass if the box doesn't exist
-     */
-
-    public function statusMailbox()
-    {
-        return imap_status(
-            $this->getImapStream(),
-            $this->imapPath,
-            SA_ALL );
-    }
-
-    /**
-     * Gets listing the folders
+     * Gets a listing of the folders in the selected mailbox.
      *
      * This function returns an object containing listing the folders.
      * The object has the following properties:
      *   messages, recent, unseen, uidnext, and uidvalidity.
      *
-     * @return array listing the folders
+     * @return RecursiveIteratorIterator
      */
-    public function getListingFolders()
+    public function getFolders( $rootFolder = NULL )
     {
-        $folders = imap_list(
-            $this->getImapStream(),
-            $this->imapPath,
-            "*" );
+        $rootFolder = $rootFolder ?: $this->imapFolder;
+        $folders = $this->getImapStream()->getFolders( $rootFolder );
 
-        foreach ( $folders as $key => $folder ) {
-            $folder = str_replace(
-                $this->imapPath,
-                "",
-                imap_utf7_decode( $folder ) );
-            $folders[ $key ] = $folder;
+        if ( ! $folders ) {
+            return [];
         }
 
-        return $folders;
+        return new Iterator( $folders, Iterator::SELF_FIRST );
     }
 
     /**
@@ -242,305 +197,135 @@ class Mailbox
      *
      * @return array Mail IDs
      */
-    public function searchMailbox( $criteria = 'ALL' )
+    public function search( $criteria = 'ALL' )
     {
-        $mailIds = imap_search(
-            $this->getImapStream(),
-            $criteria,
-            SE_UID,
-            $this->serverEncoding );
+        $mailIds = $this->getImapStream()->search([ $criteria ]);
 
-        return ( $mailIds ) ?: [];
+        return $mailIds ?: [];
     }
 
     /**
-     * Save mail body.
-     * @return bool
+     * Returns a count of messages for the selected folder.
+     * @param array $flags
+     * @return integer
      */
-    public function saveMail( $mailId, $filename = 'email.eml' )
+    public function count( $flags = NULL )
     {
-        return imap_savebody(
-            $this->getImapStream(),
-            $filename,
-            $mailId,
-            "",
-            FT_UID);
+        return $this->getImapStream()->countMessages( $flags );
     }
 
     /**
-     * Marks mails listed in mailId for deletion.
-     * @return bool
-     */
-    public function deleteMail( $mailId )
-    {
-        return imap_delete( $this->getImapStream(), $mailId, FT_UID );
-    }
-
-    public function moveMail( $mailId, $mailBox )
-    {
-        return imap_mail_move(
-                $this->getImapStream(),
-                $mailId,
-                $mailBox,
-                CP_UID )
-            && $this->expungeDeletedMails();
-    }
-
-    /**
-     * Deletes all the mails marked for deletion by imap_delete(),
-     * imap_mail_move(), or imap_setflag_full().
-     * @return bool
-     */
-    public function expungeDeletedMails()
-    {
-        return imap_expunge( $this->getImapStream() );
-    }
-
-    /**
-     * Add the flag \Seen to a mail.
-     * @return bool
-     */
-    public function markMailAsRead( $mailId )
-    {
-        return $this->setFlag( [ $mailId ], '\\Seen' );
-    }
-
-    /**
-     * Remove the flag \Seen from a mail.
-     * @return bool
-     */
-    public function markMailAsUnread( $mailId )
-    {
-        return $this->clearFlag( [ $mailId ], '\\Seen');
-    }
-
-    /**
-     * Add the flag \Flagged to a mail.
-     * @return bool
-     */
-    public function markMailAsImportant( $mailId )
-    {
-        return $this->setFlag( [ $mailId ], '\\Flagged');
-    }
-
-    /**
-     * Add the flag \Seen to a mails.
-     * @return bool
-     */
-    public function markMailsAsRead( array $mailIds )
-    {
-        return $this->setFlag( $mailIds, '\\Seen');
-    }
-
-    /**
-     * Remove the flag \Seen from some mails.
-     * @return bool
-     */
-    public function markMailsAsUnread( array $mailIds )
-    {
-        return $this->clearFlag( $mailId, '\\Seen' );
-    }
-
-    /**
-     * Add the flag \Flagged to some mails.
-     * @return bool
-     */
-    public function markMailsAsImportant( array $mailIds )
-    {
-        return $this->setFlag( $mailId, '\\Flagged' );
-    }
-
-    /**
-     * Causes a store to add the specified flag to the flags set for the mails
-     * in the specified sequence.
+     * Fetch mail headers for listed mail IDs. Returns an object in
+     * the following format:
+     *   uid: integer,
+     *   size: integer,
+     *   flags: [
+     *       seen: bool,
+     *       draft: bool,
+     *       recent: bool,
+     *       deleted: bool,
+     *       flagged: bool,
+     *       answered: bool
+     *   ],
+     *   messageNum: Sequence number
+     *   headers: [
+     *       to: Recipient(s), string
+     *       from: Who sent it, string
+     *       id: Unique identifier, string
+     *       date: When it was sent, string
+     *       subject: Message's subject, string
+     *       contentType: Content type of the message
+     *       inReplyTo: ID of message this replying to
+     *       references: List of messages this one references
+     *   ]
      *
-     * @param array $mailIds
-     * @param string $flag which you can set are:
-     *   \Seen, \Answered, \Flagged, \Deleted, and \Draft as defined by RFC2060.
-     * @return bool
+     * @param integer $id
+     * @return stdClass
      */
-    public function setFlag( array $mailIds, $flag )
+    public function getMessageInfo( $id )
     {
-        return imap_setflag_full(
-            $this->getImapStream(),
-            implode( ',', $mailIds ),
-            $flag,
-            ST_UID );
-    }
+        // Set up the new message
+        $messageInfo = new stdClass();
+        $messageInfo->messgeNum = $id;
+        $messageInfo->flags = new stdClass();
+        $messageInfo->headers = new stdClass();
 
-    /**
-     * Cause a store to delete the specified flag to the flags set for the
-     * mails in the specified sequence.
-     *
-     * @param array $mailIds
-     * @param string $flag which you can set are \Seen, \Answered, \Flagged,
-     *   \Deleted, and \Draft as defined by RFC2060.
-     * @return bool
-     */
-    public function clearFlag( array $mailIds, $flag )
-    {
-        return imap_clearflag_full(
-            $this->getImapStream(),
-            implode( ',', $mailIds ),
-            $flag,
-            ST_UID );
-    }
+        // Get the message info
+        $message = $this->getImapStream()->getMessage( $id );
+        $messageInfo->size = $this->getImapStream()->getSize( $id );
+        $messageInfo->uid = $this->getImapStream()->getUniqueId( $id );
 
-    /**
-     * Fetch mail headers for listed mail IDs
-     *
-     * Returns an array of objects describing one mail header each. The object
-     * will only define a property if it exists. The possible properties are:
-     *   subject - the mails subject
-     *   from - who sent it
-     *   to - recipient
-     *   date - when was it sent
-     *   message_id - Mail-ID
-     *   references - is a reference to this mail ID
-     *   in_reply_to - is a reply to this mail ID
-     *   size - size in bytes
-     *   uid - UID the mail has in the mailbox
-     *   msgno - mail sequence number in the mailbox
-     *   recent - this mail is flagged as recent
-     *   flagged - this mail is flagged
-     *   answered - this mail is flagged as answered
-     *   deleted - this mail is flagged for deletion
-     *   seen - this mail is flagged as already read
-     *   draft - this mail is flagged as being a draft
-     *
-     * @param array $mailIds
-     * @return array
-     */
-    public function getMailsInfo( array $mailIds )
-    {
-        $mails = imap_fetch_overview(
-            $this->getImapStream(),
-            implode( ',', $mailIds ),
-            FT_UID );
+        // Use this to lookup the headers
+        $headers = $message->getHeaders();
+        $headerMap = [
+            'To' => 'to',
+            'From' => 'from',
+            'Date' => 'date',
+            'Message-ID' => 'id',
+            'Subject' => 'subject',
+            'References' => 'references',
+            'In-Reply-To' => 'inReplyTo',
+            'Content-Type' => 'contentType'
+        ];
 
-        if ( is_array( $mails ) && count( $mails ) ) {
-            foreach ( $mails as &$mail ) {
-                if ( isset( $mail->to ) ) {
-                    $mail->to = $this->decodeMimeStr(
-                        $mail->to,
-                        $this->serverEncoding );
-                }
-
-                if ( isset( $mail->from ) ) {
-                    $mail->from = $this->decodeMimeStr(
-                        $mail->from,
-                        $this->serverEncoding );
-                }
-
-                if ( isset( $mail->subject ) ) {
-                    $mail->subject = $this->decodeMimeStr(
-                        $mail->subject,
-                        $this->serverEncoding );
-                }
+        // Add the headers
+        foreach ( $headers as $h ) {
+            if ( array_key_exists( $h->getFieldName(), $headerMap ) ) {
+                $key = $headerMap[ $h->getFieldName() ];
+                $messageInfo->headers->$key = $h->getFieldValue();
             }
         }
 
-        return $mails;
-    }
-
-    /**
-     * Get information about the current mailbox.
-     *
-     * Returns an object with following properties:
-     *   Date - last change (current datetime)
-     *   Driver - driver
-     *   Mailbox - name of the mailbox
-     *   Nmsgs - number of messages
-     *   Recent - number of recent messages
-     *   Unread - number of unread messages
-     *   Deleted - number of deleted messages
-     *   Size - mailbox size
-     *
-     * @return object Object with info | FALSE on failure
-     */
-    public function getMailboxInfo()
-    {
-        return imap_mailboxmsginfo( $this->getImapStream() );
-    }
-
-    /**
-     * Gets mail IDs sorted by some criteria
-     *
-     * Criteria can be one (and only one) of the following constants:
-     *   SORTDATE - mail Date
-     *   SORTARRIVAL - arrival date (default)
-     *   SORTFROM - mailbox in first From address
-     *   SORTSUBJECT - mail subject
-     *   SORTTO - mailbox in first To address
-     *   SORTCC - mailbox in first cc address
-     *   SORTSIZE - size of mail in octets
-     *
-     * @param int $criteria
-     * @param bool $reverse
-     * @return array Mail IDs
-     */
-    public function sortMails( $criteria = SORTARRIVAL, $reverse = TRUE )
-    {
-        return imap_sort( $this->getImapStream(), $criteria, $reverse, SE_UID );
-    }
-
-    /**
-     * Get mails count in mail box
-     * @return int
-     */
-    public function countMails()
-    {
-        return imap_num_msg( $this->getImapStream() );
-    }
-
-    /**
-     * Retrieve the quota settings per user
-     * @return array - FALSE in the case of call failure
-     */
-    protected function getQuota()
-    {
-        return imap_get_quotaroot( $this->getImapStream(), 'INBOX' );
-    }
-
-    /**
-     * Return quota limit in KB
-     * @return int - FALSE in the case of call failure
-     */
-    public function getQuotaLimit()
-    {
-        $quota = $this->getQuota();
-
-        if ( is_array( $quota ) ) {
-            $quota = $quota[ 'STORAGE' ][ 'limit' ];
+        foreach ( $headerMap as $header => $key ) {
+            if ( ! isset( $messageInfo->headers->$key ) ) {
+                $messageInfo->headers->$key = NULL;
+            }
         }
 
-        return $quota;
-    }
+        // Add in the flags
+        $flags = $message->getFlags();
+        $flagMap = [
+            '\Seen' => 'seen',
+            '\Draft' => 'draft',
+            '\Recent' => 'recent',
+            '\Deleted' => 'deleted',
+            '\Flagged' => 'flagged',
+            '\Answered' => 'answered'
+        ];
 
-    /**
-     * Return quota usage in KB
-     * @return int - FALSE in the case of call failure
-     */
-    public function getQuotaUsage()
-    {
-        $quota = $this->getQuota();
-
-        if ( is_array( $quota ) ) {
-            $quota = $quota[ 'STORAGE' ][ 'usage' ];
+        foreach ( $flags as $f => $v ) {
+            if ( array_key_exists( $f, $flagMap ) ) {
+                $key = $flagMap[ $f ];
+                $messageInfo->flags->$key = TRUE;
+            }
         }
 
-        return $quota;
+        foreach ( $flagMap as $flag => $key ) {
+            if ( ! isset( $messageInfo->flags->$key ) ) {
+                $messageInfo->flags->$key = FALSE;
+            }
+        }
+
+        return $messageInfo;
     }
 
     /**
-     * Get mail data.
-     *
-     * @param $mailId
-     * @param bool $markAsSeen
+     * Get the message data.
+     * @param $id
      * @return Mail
      */
-    public function getMail( $mailId, $markAsSeen = TRUE )
+    public function getMessage( $id )
     {
+        try {
+            $message = $this->getImapStream()->getMessage( $id );
+            return $message->getContent();
+        } catch ( \Exception $e ) {
+            return NULL;
+        }
+        exit( '@todo' );
+
+
+
         $mail = new Mail();
         $head = imap_rfc822_parse_headers(
             imap_fetchheader(
