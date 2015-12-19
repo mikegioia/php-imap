@@ -7,7 +7,9 @@ use stdClass
   , PhpImap\Imap
   , PhpImap\Mail
   , PhpImap\Attachment
-  , RecursiveIteratorIterator as Iterator;
+  , Zend\Mail\Storage\Message
+  , RecursiveIteratorIterator as Iterator
+  , Zend\Mail\Exception\InvalidArgumentException;
 
 /**
  * Author of this library:
@@ -227,6 +229,7 @@ class Mailbox
      *       flagged: bool,
      *       answered: bool
      *   ],
+     *   message: Message object
      *   messageNum: Sequence number
      *   headers: [
      *       to: Recipient(s), string
@@ -252,6 +255,8 @@ class Mailbox
 
         // Get the message info
         $message = $this->getImapStream()->getMessage( $id );
+        // Store some internal properties
+        $messageInfo->message = $message;
         $messageInfo->size = $this->getImapStream()->getSize( $id );
         $messageInfo->uid = $this->getImapStream()->getUniqueId( $id );
 
@@ -268,18 +273,12 @@ class Mailbox
             'Content-Type' => 'contentType'
         ];
 
-        // Add the headers
-        foreach ( $headers as $h ) {
-            if ( array_key_exists( $h->getFieldName(), $headerMap ) ) {
-                $key = $headerMap[ $h->getFieldName() ];
-                $messageInfo->headers->$key = $h->getFieldValue();
-            }
-        }
-
-        foreach ( $headerMap as $header => $key ) {
-            if ( ! isset( $messageInfo->headers->$key ) ) {
-                $messageInfo->headers->$key = NULL;
-            }
+        // Add the headers. This could throw exceptions during the
+        // header parsing that we want to catch.
+        foreach ( $headerMap as $field => $key ) {
+            $messageInfo->headers->$key = ( $headers->has( $field ) )
+                ? $headers->get( $field )
+                : NULL;
         }
 
         // Add in the flags
@@ -293,17 +292,8 @@ class Mailbox
             '\Answered' => 'answered'
         ];
 
-        foreach ( $flags as $f => $v ) {
-            if ( array_key_exists( $f, $flagMap ) ) {
-                $key = $flagMap[ $f ];
-                $messageInfo->flags->$key = TRUE;
-            }
-        }
-
-        foreach ( $flagMap as $flag => $key ) {
-            if ( ! isset( $messageInfo->flags->$key ) ) {
-                $messageInfo->flags->$key = FALSE;
-            }
+        foreach ( $flagMap as $field => $key ) {
+            $messageInfo->flags->$key = isset( $flags[ $field ] );
         }
 
         return $messageInfo;
@@ -316,86 +306,81 @@ class Mailbox
      */
     public function getMessage( $id )
     {
-        try {
-            $message = $this->getImapStream()->getMessage( $id );
-            return $message->getContent();
-        } catch ( \Exception $e ) {
-            return NULL;
-        }
-        exit( '@todo' );
-
-
-
         $mail = new Mail();
-        $head = imap_rfc822_parse_headers(
-            imap_fetchheader(
-                $this->getImapStream(),
-                $mailId,
-                FT_UID
-            ));
-        $mail->id = $mailId;
-        $date = ( isset( $head->date ) )
-            ? strtotime( preg_replace( '/\(.*?\)/', '', $head->date ) )
+        $messageInfo = $this->getMessageInfo( $id );
+
+        // Store some common properties
+        $mail->id = $id;
+        $mail->messageId = ( isset( $head->id ) )
+            ? $head->id->getFieldValue()
+            : NULL;
+        $head = $messageInfo->headers;
+        $time = ( isset( $head->date ) )
+            ? strtotime( preg_replace( '/\(.*?\)/', '', $head->date->getFieldValue() ) )
             : time();
-        $mail->date = date('Y-m-d H:i:s', $date );
+        $mail->date = date( 'Y-m-d H:i:s', $time );
         $mail->subject = ( isset( $head->subject ) )
-            ? $this->decodeMimeStr( $head->subject, $this->serverEncoding )
+            ? $head->subject->getFieldValue()
             : NULL;
-        $mail->fromName = ( isset( $head->from[ 0 ]->personal ) )
-            ? $this->decodeMimeStr(
-                $head->from[ 0 ]->personal,
-                $this->serverEncoding )
+        // Try to get the from address and name
+        $from = $this->getAddresses( $head, 'from' );
+        $mail->fromName = ( $from )
+            ? $from[ 0 ]->getName()
             : NULL;
-        $mail->fromAddress = strtolower(
-            $head->from[ 0 ]->mailbox .'@'. $head->from[ 0 ]->host );
+        $mail->fromAddress = ( $from )
+            ? $from[ 0 ]->getEmail()
+            : NULL;
+        // The next two fields are the remaining addresses
+        $mail->to = ( isset( $head->to ) )
+            ? $this->getAddresses( $head, 'to' )
+            : [];
+        $mail->toString = ( isset( $head->to ) )
+            ? $head->to->getFieldValue()
+            : '';
+        $mail->cc = ( isset( $head->cc ) )
+            ? $this->getAddresses( $head, 'cc' )
+            : [];
+        // This is a message ID that the message is replying to
+        $mail->inReplyTo = ( isset( $head->inReplyTo ) )
+            ? $head->inReplyTo->getFieldValue()
+            : NULL;
 
-        if ( isset( $head->to ) ) {
-            $toStrings = [];
-
-            foreach ( $head->to as $to ) {
-                if ( ! empty( $to->mailbox ) && ! empty( $to->host ) ) {
-                    $toEmail = strtolower( $to->mailbox .'@'. $to->host );
-                    $toName = ( isset( $to->personal ) )
-                        ? $this->decodeMimeStr(
-                            $to->personal,
-                            $this->serverEncoding )
-                        : NULL;
-                    $toStrings[] = ( $toName )
-                        ? "$toName <$toEmail>"
-                        : $toEmail;
-                    $mail->to[ $toEmail ] = $toName;
+        foreach ( $messageInfo->message as $a ) {
+            $h = $a->getHeaders();
+            //print_r($h);
+            if ( $h->has( 'contentTransferEncoding' ) ) {
+                $encoding = $h->get( 'contentTransferEncoding' )->getFieldValue();
+                echo $h->get( 'contentTransferEncoding' )->getTransferEncoding(), "\n";
+                if ( $encoding === 'base64' )
+                {
+                    $data = preg_replace( '~[^a-zA-Z0-9+=/]+~s', '', $a->getContent() );
+                    $data = base64_decode( $data );
+                }
+                else if ( $encoding === 'quoted-printable' )
+                {
+                    //print_r($h);
+                    $data = quoted_printable_decode( $a->getContent() );
+                    //echo $data;
                 }
             }
-
-            $mail->toString = implode( ', ', $toStrings );
-        }
-
-        if ( isset( $head->cc ) ) {
-            foreach ( $head->cc as $cc ) {
-                $address = strtolower( $cc->mailbox .'@'. $cc->host );
-                $mail->cc[ $address ] = ( isset( $cc->personal ) )
-                    ? $this->decodeMimeStr(
-                        $cc->personal,
-                        $this->serverEncoding )
-                    : NULL;
+            else
+            {
+                echo "asdasd\n";
+                echo $a->getContent(), "\n";
             }
+            //if ( $h->has( 'xAttachmentId' ) ) {
+            //    file_put_contents(
+            //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
+            //        base64_decode( $a->getContent() ) );
+            //}
         }
 
-        if ( isset( $head->reply_to ) ) {
-            foreach ( $head->reply_to as $replyTo ) {
-                $address = strtolower( $replyTo->mailbox .'@'. $replyTo->host );
-                $mail->replyTo[ $address ] = ( isset( $replyTo->personal ) )
-                    ? $this->decodeMimeStr(
-                        $replyTo->personal,
-                        $this->serverEncoding )
-                    : NULL;
-            }
-        }
+        return $mail;
 
-        if ( isset( $head->message_id ) ) {
-            $mail->messageId = $head->message_id;
-        }
+        // Add all of the mail parts. This will save attachments to
+        // the mail object.
 
+        /*
         $mailStructure = imap_fetchstructure(
             $this->getImapStream(),
             $mailId,
@@ -413,8 +398,30 @@ class Mailbox
                     $markAsSeen );
             }
         }
+        */
 
         return $mail;
+    }
+
+    /**
+     * Takes in a headers object and returns an array of addresses
+     * for a particular field. If $returnString is true, then the
+     * comma-separated list of RFC822 name/emails is returned.
+     * @param \Headers $headers
+     * @param string $field
+     * @return array|string
+     */
+    protected function getAddresses( $headers, $field, $returnString = FALSE )
+    {
+        $addresses = [];
+
+        if ( isset( $headers->$field ) && count( $headers->$field ) ) {
+             foreach ( $headers->$field->getAddressList() as $address ) {
+                $addresses[] = $address;
+             }
+        }
+
+        return $addresses;
     }
 
     protected function initMailPart(

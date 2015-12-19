@@ -17,7 +17,7 @@ class Mail
     public $messageId;
     public $textPlain;
     public $fromAddress;
-	public $replyTo = [];
+	public $inReplyTo = [];
 
 	/**
      * @var Attachment []
