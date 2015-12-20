@@ -4,6 +4,7 @@ namespace PhpImap;
 
 use stdClass
   , Exception
+  , Zend\Mime
   , PhpImap\Imap
   , PhpImap\Mail
   , PhpImap\Attachment
@@ -15,9 +16,6 @@ use stdClass
  * Author of this library:
  * @see https://github.com/mikegioia/php-imap
  * @author Mike Gioia http://mikegioia.com
- * Original author:
- * @see https://github.com/barbushin/php-imap
- * @author Barbushin Sergey http://linkedin.com/in/barbushin
  */
 class Mailbox
 {
@@ -34,6 +32,10 @@ class Mailbox
 
     // Internal reference to IMAP connection
     static protected $imapStream;
+
+// TEMPORARY
+public $contentTypesArray = [];
+
 
     /**
      * Sets up a new mailbox object with the IMAP credentials to connect.
@@ -345,60 +347,44 @@ class Mailbox
             ? $head->inReplyTo->getFieldValue()
             : NULL;
 
-        foreach ( $messageInfo->message as $a ) {
-            $h = $a->getHeaders();
-            //print_r($h);
-            if ( $h->has( 'contentTransferEncoding' ) ) {
-                $encoding = $h->get( 'contentTransferEncoding' )->getFieldValue();
-                echo $h->get( 'contentTransferEncoding' )->getTransferEncoding(), "\n";
-                if ( $encoding === 'base64' )
-                {
-                    $data = preg_replace( '~[^a-zA-Z0-9+=/]+~s', '', $a->getContent() );
-                    $data = base64_decode( $data );
-                }
-                else if ( $encoding === 'quoted-printable' )
-                {
-                    //print_r($h);
-                    $data = quoted_printable_decode( $a->getContent() );
-                    //echo $data;
-                }
-            }
-            else
-            {
-                echo "asdasd\n";
-                echo $a->getContent(), "\n";
-            }
-            //if ( $h->has( 'xAttachmentId' ) ) {
-            //    file_put_contents(
-            //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
-            //        base64_decode( $a->getContent() ) );
-            //}
+        // If this is NOT a multipart message, store the plain text
+        if ( ! $messageInfo->message->isMultipart() ) {
+            $mail->textPlain = $this->convertContent(
+                $messageInfo->message->getContent(),
+                $messageInfo->message->getHeaders() );
+            return $mail;
         }
-
-        return $mail;
 
         // Add all of the mail parts. This will save attachments to
-        // the mail object.
+        // the mail object. We can iterate over the Message object
+        // and get each part that way.
+        foreach ( $messageInfo->message as $part ) {
+            $partHead = $part->getHeaders();
 
-        /*
-        $mailStructure = imap_fetchstructure(
-            $this->getImapStream(),
-            $mailId,
-            FT_UID );
-
-        if ( empty( $mailStructure->parts ) ) {
-            $this->initMailPart( $mail, $mailStructure, 0, $markAsSeen );
-        }
-        else {
-            foreach ( $mailStructure->parts as $partNum => $partStructure ) {
-                $this->initMailPart(
-                    $mail,
-                    $partStructure,
-                    $partNum + 1,
-                    $markAsSeen );
+            // If it's a file attachment we want to process all of
+            // the attachments and save them to $mail->attachments.
+            // Should this check agains 'xAttachmentId'? Should this
+            // just trigger for anything that isn't text?
+            // @TODO
+            if ( $partHead->has( 'x-attachment-id' )
+                || $partHead->has( 'content-disposition' ) )
+            {
+                // Get filename?
+                // Get content-type? Where is name for file?
+                // $attachment = $this->processAttachment()
+                // if ( $attachment ) $mail->attachments[] = $attachment;
+                //if ( $h->has( 'xAttachmentId' ) ) {
+                //    file_put_contents(
+                //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
+                //        base64_decode( $a->getContent() ) );
+                //}
+            }
+            // Check if the part is text/plain or text/html and save
+            // those as properties on $mail.
+            else {
+                $this->processContent( $mail, $part );
             }
         }
-        */
 
         return $mail;
     }
@@ -424,6 +410,170 @@ class Mailbox
         return $addresses;
     }
 
+    protected function processContent( &$mail, $part )
+    {
+        $contentType = $part->getHeaderField( 'content-type' );
+
+        if ( $contentType === Mime\Mime::MULTIPART_ALTERNATIVE ) {
+            $boundary = $part->getHeaderField( 'content-type', 'boundary' );
+
+            if ( $boundary ) {
+                $subparts = Mime\Decode::splitMessageStruct(
+                    $part->getContent(),
+                    $boundary );
+
+                foreach ( $subparts as $subpart ) {
+                    $typeHeader = $subpart[ 'header' ]->get( 'content-type' );
+                    $charset = $typeHeader->getParameter( 'charset' );
+                    $this->processTextContent(
+                        $mail,
+                        $typeHeader->getType(),
+                        $this->convertContent(
+                            $subpart[ 'body' ],
+                            $subpart[ 'header' ] ),
+                        $typeHeader->getParameter( 'charset' ));
+                }
+            }
+        }
+        elseif ( $contentType === Mime\Mime::TYPE_TEXT
+            || $contentType === Mime\Mime::TYPE_HTML )
+        {
+            $this->processTextContent(
+                $mail,
+                $contentType,
+                $this->convertContent( $part->getContent(), $part->getHeaders() ),
+                $part->getHeaderField( 'content-type', 'charset' ));
+        }
+        else {
+            echo "NEW CONTENT TYPE FOUND\n";
+            print_r($part);
+            exit;
+        }
+    }
+
+    protected function processTextContent( &$mail, $contentType, $content, $charset )
+    {
+        if ( $contentType === Mime\Mime::TYPE_TEXT ) {
+            $mail->textPlain = $this->convertEncoding( $content, $charset, 'UTF-8' );
+        }
+        else if ( $contentType === Mime\Mime::TYPE_HTML ) {
+            $mail->textHtml = $this->convertEncoding( $content, $charset, 'UTF-8' );
+        }
+    }
+
+    /**
+     * Create an ID for a mail attachment. This takes the attributes name,
+     * date, filename, etc and hashes the result.
+     * @param array $params
+     * @return string
+     */
+    protected function generateAttachmentId( $params, $mail, $partNum )
+    {
+        // If both are missing, then this isn't an attachment
+        if ( ! isset( $params[ 'filename' ] )
+            && ! isset( $params[ 'name' ] ) )
+        {
+            return NULL;
+        }
+
+        // Unique ID is a concatenation of the unique ID and a
+        // hash of the combined date, from address, subject line,
+        // part number, and message ID.
+        return md5(
+            sprintf(
+                "%s-%s-%s-%s-%s",
+                $mail->date,
+                $mail->fromAddress,
+                $mail->subject,
+                $partNum,
+                $mail->messageId
+            ));
+    }
+
+    protected function convertContent( $content, $headers )
+    {
+        $data = NULL;
+
+        if ( $headers->has( 'contentTransferEncoding' ) ) {
+            $encoding = $headers
+                ->get( 'contentTransferEncoding' )
+                ->getFieldValue();
+
+            if ( $encoding === 'base64' ) {
+                $data = preg_replace(
+                    '~[^a-zA-Z0-9+=/]+~s',
+                    '',
+                    $content );
+                $data = base64_decode( $data );
+            }
+            else if ( $encoding === 'quoted-printable' ) {
+                $data = quoted_printable_decode( $content );
+            }
+        }
+
+        if ( is_null( $data ) ) {
+            $data = $content;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Converts a string from one encoding to another.
+     * @param string $string
+     * @param string $fromEncoding
+     * @param string $toEncoding
+     * @return string Converted string if conversion was successful, or the
+     *   original string if not
+     */
+    protected function convertEncoding( $string, $fromEncoding, $toEncoding )
+    {
+        $convertedString = NULL;
+
+        if ( $string && $fromEncoding != $toEncoding ) {
+            $convertedString = @iconv(
+                $fromEncoding,
+                $toEncoding . '//IGNORE',
+                $string );
+
+            if ( ! $convertedString && extension_loaded( 'mbstring' ) ) {
+                $convertedString = @mb_convert_encoding(
+                    $string,
+                    $toEncoding,
+                    $fromEncoding );
+            }
+        }
+
+        return $convertedString ?: $string;
+    }
+
+    public function debug( $message )
+    {
+        if ( ! $this->debugMode ) {
+            return;
+        }
+
+        $date = new \DateTime();
+
+        echo sprintf(
+            "[%s] %s MB peak, %s MB cur -- %s%s",
+            $date->format( 'Y-m-d H:i:s' ),
+            number_format(
+                memory_get_peak_usage( TRUE ) / 1024 / 1024,
+                2 ),
+            number_format(
+                memory_get_usage( TRUE ) / 1024 / 1024,
+                2 ),
+            $message,
+            PHP_EOL );
+    }
+
+    public function __destruct()
+    {
+        $this->disconnect();
+    }
+
+/*
     protected function initMailPart(
         Mail $mail,
         $partStructure,
@@ -631,35 +781,6 @@ class Mailbox
         return ! $hasInvalidChars && $hasEscapedChars;
     }
 
-    /**
-     * Create an ID for a mail attachment. This takes the attributes name,
-     * date, filename, etc and hashes the result.
-     * @param array $params
-     * @return string
-     */
-    protected function generateAttachmentId( $params, $mail, $partNum )
-    {
-        // If both are missing, then this isn't an attachment
-        if ( ! isset( $params[ 'filename' ] )
-            && ! isset( $params[ 'name' ] ) )
-        {
-            return NULL;
-        }
-
-        // Unique ID is a concatenation of the unique ID and a
-        // hash of the combined date, from address, subject line,
-        // part number, and message ID.
-        return md5(
-            sprintf(
-                "%s-%s-%s-%s-%s",
-                $mail->date,
-                $mail->fromAddress,
-                $mail->subject,
-                $partNum,
-                $mail->messageId
-            ));
-    }
-
     protected function decodeRFC2231( $string, $charset = 'utf-8' )
     {
         if ( preg_match( "/^(.*?)'.*?'(.*?)$/", $string, $matches ) ) {
@@ -676,59 +797,5 @@ class Mailbox
 
         return $string;
     }
-
-    /**
-     * Converts a string from one encoding to another.
-     * @param string $string
-     * @param string $fromEncoding
-     * @param string $toEncoding
-     * @return string Converted string if conversion was successful, or the
-     *   original string if not
-     */
-    protected function convertStringEncoding( $string, $fromEncoding, $toEncoding )
-    {
-        $convertedString = NULL;
-
-        if ( $string && $fromEncoding != $toEncoding ) {
-            $convertedString = @iconv(
-                $fromEncoding,
-                $toEncoding . '//IGNORE',
-                $string );
-
-            if ( ! $convertedString && extension_loaded( 'mbstring' ) ) {
-                $convertedString = @mb_convert_encoding(
-                    $string,
-                    $toEncoding,
-                    $fromEncoding );
-            }
-        }
-
-        return ( $convertedString ) ?: $string;
-    }
-
-    public function debug( $message )
-    {
-        if ( ! $this->debugMode ) {
-            return;
-        }
-
-        $date = new \DateTime();
-
-        echo sprintf(
-            "[%s] %s MB peak, %s MB cur -- %s%s",
-            $date->format( 'Y-m-d H:i:s' ),
-            number_format(
-                memory_get_peak_usage( TRUE ) / 1024 / 1024,
-                2 ),
-            number_format(
-                memory_get_usage( TRUE ) / 1024 / 1024,
-                2 ),
-            $message,
-            PHP_EOL );
-    }
-
-    public function __destruct()
-    {
-        $this->disconnect();
-    }
+*/
 }
