@@ -356,6 +356,8 @@ class Mailbox
         // Add all of the message parts. This will save attachments to
         // the message object. We can iterate over the Message object
         // and get each part that way.
+        $partNum = 1;
+
         foreach ( $messageInfo->message as $part ) {
             $partHead = $part->getHeaders();
             $contentType = ( $partHead->has( 'content-type' ) )
@@ -370,6 +372,7 @@ class Mailbox
                 ]);
             }
 
+            $part->partNum = $partNum++;
             $this->processPart( $message, $part );
         }
 
@@ -450,6 +453,7 @@ class Mailbox
                 $subStructs = Mime\Decode::splitMessageStruct(
                     $part->getContent(),
                     $boundary );
+                $subPartNum = 1;
 
                 foreach ( $subStructs as $subStruct ) {
                     $subPart = new Part([
@@ -458,6 +462,7 @@ class Mailbox
                     ]);
 
                     // Recursive call
+                    $subPart->partNum = $part->partNum .".". $subPartNum++;
                     $this->processContent( $message, $subPart );
                 }
             }
@@ -479,7 +484,7 @@ class Mailbox
         if ( $contentType === Mime\Mime::TYPE_TEXT ) {
             $message->textPlain .= $this->convertEncoding( $content, $charset, 'UTF-8' );
         }
-        else if ( $contentType === Mime\Mime::TYPE_HTML ) {
+        elseif ( $contentType === Mime\Mime::TYPE_HTML ) {
             $message->textHtml .= $this->convertEncoding( $content, $charset, 'UTF-8' );
         }
     }
@@ -504,11 +509,17 @@ class Mailbox
             $name = $name ?: $part->getHeaderField( 'content-type', 'name' );
             $filename = $filename ?: $part->getHeaderField( 'content-type', 'filename' );
         }
-
+echo $part->partNum , "\n";
         // Certain mime types don't provide name info but we can try
         // to infer it from the mime type.
         if ( ! $filename ) {
-            if ( $contentType === 'text/calendar' ) {
+            if ( $headers->has( 'content-id' ) ) {
+                $filename = trim( $part->getHeaderField( 'content-id' ), " <>" );
+            }
+            elseif ( $headers->has( 'x-attachment-id' ) ) {
+                $filename = trim( $part->getHeaderField( 'x-attachment-id' ), " <>" );
+            }
+            elseif ( $contentType === 'text/calendar' ) {
                 $filename = 'event.ical';
             }
             else {
@@ -516,32 +527,38 @@ class Mailbox
             }
         }
 
-        if ( ! $filename && ! $name ) {
+        if ( ! $filename ) {
             print_r($part);
             exit;
         }
 
+        // Add a default filename and if an extension is missing, try
+        // to add one.
         if ( ! $filename ) {
+            // @TODO
             $filename = 'unknown';
         }
 
         return;
 
+        // @TODO get the part index number?
+
         // If we are fortunate enough to get an attachment ID, then
         // use that. Otherwise we want to create on in a deterministic
         // way.
         $attachmentId = ( $headers->has( 'x-attachment-id' ) )
-            ? trim( $headers->get( 'x-attachment-id' )->getFieldValue(), " <>" )
-            : $this->generateAttachmentId( $params, $message, $part );
+            ? trim( $part->getHeaderField( 'x-attachment-id' ), " <>" )
+            : $this->generateAttachmentId( $message, $part->partNum );
     }
 
     /**
      * Create an ID for a message attachment. This takes the attributes
      * name, date, filename, etc and hashes the result.
-     * @param array $params
+     * @param Message $message
+     * @param integer $partNum
      * @return string
      */
-    protected function generateAttachmentId( $params, $message, $partNum )
+    protected function generateAttachmentId( $message, $partNum )
     {
         // Unique ID is a concatenation of the unique ID and a
         // hash of the combined date, from address, subject line,
