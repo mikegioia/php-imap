@@ -399,12 +399,18 @@ class Mailbox
 
     protected function processPart( &$message, $part, $headers = NULL, $content = NULL )
     {
-        $headers = $headers ?: $part->getHeaders();
+        $textTypes = [
+            Mime\Mime::TYPE_TEXT,
+            Mime\Mime::TYPE_HTML
+        ];
+        $headers = $part->getHeaders();
+        $contentType = $part->getHeaderField( 'content-type' );
 
         // If it's a file attachment we want to process all of
         // the attachments and save them to $message->attachments.
         if ( $headers->has( 'x-attachment-id' )
-            || $headers->has( 'content-disposition' ) )
+            || $headers->has( 'content-disposition' )
+            && ! in_array( $contentType, $textTypes ) )
         {
             $this->processAttachment( $message, $part );
             // Get filename?
@@ -482,6 +488,7 @@ class Mailbox
     {
         $name = NULL;
         $filename = NULL;
+        $contentType = NULL;
         $attachment = new Attachment();
         $headers = $part->getHeaders();
 
@@ -493,28 +500,32 @@ class Mailbox
         }
 
         if ( $headers->has( 'content-type' ) ) {
+            $contentType = $part->getHeaderField( 'content-type' );
             $name = $name ?: $part->getHeaderField( 'content-type', 'name' );
             $filename = $filename ?: $part->getHeaderField( 'content-type', 'filename' );
         }
 
+        // Certain mime types don't provide name info but we can try
+        // to infer it from the mime type.
         if ( ! $filename ) {
-            $filename = $name;
+            if ( $contentType === 'text/calendar' ) {
+                $filename = 'event.ical';
+            }
+            else {
+                $filename = $name;
+            }
         }
 
         if ( ! $filename && ! $name ) {
             print_r($part);
             exit;
         }
-echo $filename, "\n";
+
         if ( ! $filename ) {
             $filename = 'unknown';
         }
 
         return;
-
-        // Content-Disposition has filename, Content-Type has name
-        // Look to Content-Type for something in the event that the
-        // Disposition is not present
 
         // If we are fortunate enough to get an attachment ID, then
         // use that. Otherwise we want to create on in a deterministic

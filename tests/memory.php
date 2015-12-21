@@ -27,19 +27,19 @@ if ( ! file_exists( __DIR__ .'/attachments' ) ) {
     mkdir( __DIR__ .'/attachments', TRUE );
 }
 
-//$pid = getmypid();
-//$message = <<<STR
-//My PID is: $pid
-//Run this in another terminal:
-//$> watch -n 1 ps -o vsz $pid
-//
-//STR;
-//echo $message;
-//for ( $i = 9; $i >= 1; $i-- ) {
-//    echo "\r$i";
-//    sleep( 1 );
-//}
-//echo "\rStarting...", PHP_EOL;
+$pid = getmypid();
+$message = <<<STR
+My PID is: $pid
+Run this in another terminal:
+$> watch -n 1 ps -o vsz $pid
+
+STR;
+echo $message;
+for ( $i = 9; $i >= 1; $i-- ) {
+    echo "\r$i";
+    sleep( 1 );
+}
+echo "\rStarting...", PHP_EOL;
 
 $index = 1;
 $config = parse_ini_file( __DIR__ .'/secret.ini' );
