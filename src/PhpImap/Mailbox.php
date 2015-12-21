@@ -361,12 +361,12 @@ class Mailbox
         foreach ( $messageInfo->message as $part ) {
             $partHead = $part->getHeaders();
             $contentType = ( $partHead->has( 'content-type' ) )
-                ? $partHead->get( 'content-type' )->getType()
+                ? strtolower( $partHead->get( 'content-type' )->getType() )
                 : NULL;
 
             // Check to see if this message is a container for sub-parts.
             // If it is we want to process those subparts.
-            if ( strtolower( $contentType ) === 'message/rfc822' ) {
+            if ( $contentType === 'message/rfc822' ) {
                 $part = new Part([
                     'raw' => $part->getContent()
                 ]);
@@ -416,15 +416,6 @@ class Mailbox
             && ! in_array( $contentType, $textTypes ) )
         {
             $this->processAttachment( $message, $part );
-            // Get filename?
-            // Get content-type? Where is name for file?
-            // $attachment = $this->processAttachment()
-            // if ( $attachment ) $message->attachments[] = $attachment;
-            //if ( $h->has( 'xAttachmentId' ) ) {
-            //    file_put_contents(
-            //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
-            //        base64_decode( $a->getContent() ) );
-            //}
         }
         // Check if the part is text/plain or text/html and save
         // those as properties on $message.
@@ -444,7 +435,7 @@ class Mailbox
             Mime\Mime::MULTIPART_RELATED,
             Mime\Mime::MULTIPART_ALTERNATIVE
         ];
-        $contentType = $part->getHeaderField( 'content-type' );
+        $contentType = strtolower( $part->getHeaderField( 'content-type' ) );
 
         if ( in_array( $contentType, $multipartTypes ) ) {
             $boundary = $part->getHeaderField( 'content-type', 'boundary' );
@@ -505,11 +496,11 @@ class Mailbox
         }
 
         if ( $headers->has( 'content-type' ) ) {
-            $contentType = $part->getHeaderField( 'content-type' );
+            $contentType = strtolower( $part->getHeaderField( 'content-type' ) );
             $name = $name ?: $part->getHeaderField( 'content-type', 'name' );
             $filename = $filename ?: $part->getHeaderField( 'content-type', 'filename' );
         }
-echo $part->partNum , "\n";
+
         // Certain mime types don't provide name info but we can try
         // to infer it from the mime type.
         if ( ! $filename ) {
@@ -528,6 +519,7 @@ echo $part->partNum , "\n";
         }
 
         if ( ! $filename ) {
+            echo "NO FILENAME FOR ATTACHMENT: \n";
             print_r($part);
             exit;
         }
@@ -549,6 +541,15 @@ echo $part->partNum , "\n";
         $attachmentId = ( $headers->has( 'x-attachment-id' ) )
             ? trim( $part->getHeaderField( 'x-attachment-id' ), " <>" )
             : $this->generateAttachmentId( $message, $part->partNum );
+
+        // Get content-type? Where is name for file?
+        // $attachment = $this->processAttachment()
+        // if ( $attachment ) $message->attachments[] = $attachment;
+        //if ( $h->has( 'xAttachmentId' ) ) {
+        //    file_put_contents(
+        //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
+        //        base64_decode( $a->getContent() ) );
+        //}
     }
 
     /**

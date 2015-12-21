@@ -16,10 +16,20 @@
             "email": "mikegioia@gmail.com"
         }
     ],
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/mikegioia/zend-mail"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/mikegioia/zend-mime"
+        }
+    ],
     "require": {
         "php": ">=5.3.0",
-        "zendframework/zend-mail": "^2.5",
-        "zendframework/zend-mime": "^2.5"
+        "mikegioia/zend-mail": "dev-master",
+        "mikegioia/zend-mime": "dev-master"
     },
     "autoload": {
         "psr-4": {
