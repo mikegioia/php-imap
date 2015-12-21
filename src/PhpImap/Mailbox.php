@@ -6,9 +6,9 @@ use stdClass
   , Exception
   , Zend\Mime
   , PhpImap\Imap
-  , PhpImap\Mail
+  , PhpImap\Message
   , PhpImap\Attachment
-  , Zend\Mail\Storage\Message
+  , Zend\Mail\Storage\Part
   , RecursiveIteratorIterator as Iterator
   , Zend\Mail\Exception\InvalidArgumentException;
 
@@ -32,10 +32,6 @@ class Mailbox
 
     // Internal reference to IMAP connection
     static protected $imapStream;
-
-// TEMPORARY
-public $contentTypesArray = [];
-
 
     /**
      * Sets up a new mailbox object with the IMAP credentials to connect.
@@ -163,7 +159,7 @@ public $contentTypesArray = [];
 
     /**
      * This function performs a search on the mailbox currently opened in the
-     * given IMAP stream. For example, to match all unanswered mails sent by
+     * given IMAP stream. For example, to match all unanswered messages sent by
      * Mom, you'd use: "UNANSWERED FROM mom". Searches appear to be case
      * insensitive. This list of criteria is from a reading of the UW c-client
      * source code and may be incomplete or inaccurate (see also RFC2060,
@@ -173,39 +169,39 @@ public $contentTypesArray = [];
      * following keywords are allowed. Any multi-word arguments (e.g. FROM
      * "joey smith") must be quoted. Results will match all criteria entries.
      *
-     *   ALL - return all mails matching the rest of the criteria
-     *   ANSWERED - match mails with the \\ANSWERED flag set
-     *   BCC "string" - match mails with "string" in the Bcc: field
-     *   BEFORE "date" - match mails with Date: before "date"
-     *   BODY "string" - match mails with "string" in the body of the mail
-     *   CC "string" - match mails with "string" in the Cc: field
-     *   DELETED - match deleted mails
-     *   FLAGGED - match mails with the \\FLAGGED (sometimes referred to as
+     *   ALL - return all messages matching the rest of the criteria
+     *   ANSWERED - match messages with the \\ANSWERED flag set
+     *   BCC "string" - match messages with "string" in the Bcc: field
+     *   BEFORE "date" - match messages with Date: before "date"
+     *   BODY "string" - match messages with "string" in the body of the message
+     *   CC "string" - match messages with "string" in the Cc: field
+     *   DELETED - match deleted messages
+     *   FLAGGED - match messages with the \\FLAGGED (sometimes referred to as
      *     Important or Urgent) flag set
-     *   FROM "string" - match mails with "string" in the From: field
-     *   KEYWORD "string" - match mails with "string" as a keyword
-     *   NEW - match new mails
-     *   OLD - match old mails
-     *   ON "date" - match mails with Date: matching "date"
-     *   RECENT - match mails with the \\RECENT flag set
-     *   SEEN - match mails that have been read (the \\SEEN flag is set)
-     *   SINCE "date" - match mails with Date: after "date"
-     *   SUBJECT "string" - match mails with "string" in the Subject:
-     *   TEXT "string" - match mails with text "string"
-     *   TO "string" - match mails with "string" in the To:
-     *   UNANSWERED - match mails that have not been answered
-     *   UNDELETED - match mails that are not deleted
-     *   UNFLAGGED - match mails that are not flagged
-     *   UNKEYWORD "string" - match mails that do not have the keyword "string"
-     *   UNSEEN - match mails which have not been read yet
+     *   FROM "string" - match messages with "string" in the From: field
+     *   KEYWORD "string" - match messages with "string" as a keyword
+     *   NEW - match new messages
+     *   OLD - match old messages
+     *   ON "date" - match messages with Date: matching "date"
+     *   RECENT - match messages with the \\RECENT flag set
+     *   SEEN - match messages that have been read (the \\SEEN flag is set)
+     *   SINCE "date" - match messages with Date: after "date"
+     *   SUBJECT "string" - match messages with "string" in the Subject:
+     *   TEXT "string" - match messages with text "string"
+     *   TO "string" - match messages with "string" in the To:
+     *   UNANSWERED - match messages that have not been answered
+     *   UNDELETED - match messages that are not deleted
+     *   UNFLAGGED - match messages that are not flagged
+     *   UNKEYWORD "string" - match messages that do not have the keyword "string"
+     *   UNSEEN - match messages which have not been read yet
      *
-     * @return array Mail IDs
+     * @return array Message IDs
      */
     public function search( $criteria = 'ALL' )
     {
-        $mailIds = $this->getImapStream()->search([ $criteria ]);
+        $messageIds = $this->getImapStream()->search([ $criteria ]);
 
-        return $mailIds ?: [];
+        return $messageIds ?: [];
     }
 
     /**
@@ -219,7 +215,7 @@ public $contentTypesArray = [];
     }
 
     /**
-     * Fetch mail headers for listed mail IDs. Returns an object in
+     * Fetch headers for listed message IDs. Returns an object in
      * the following format:
      *   uid: integer,
      *   size: integer,
@@ -302,91 +298,82 @@ public $contentTypesArray = [];
     }
 
     /**
-     * Get the message data.
+     * Get the message data stored in a wrapper object.
      * @param $id
-     * @return Mail
+     * @return Message
      */
     public function getMessage( $id )
     {
-        $mail = new Mail();
+        $message = new Message();
         $messageInfo = $this->getMessageInfo( $id );
 
         // Store some common properties
-        $mail->id = $id;
-        $mail->messageId = ( isset( $head->id ) )
+        $message->id = $id;
+        $message->messageId = ( isset( $head->id ) )
             ? $head->id->getFieldValue()
             : NULL;
         $head = $messageInfo->headers;
         $time = ( isset( $head->date ) )
             ? strtotime( preg_replace( '/\(.*?\)/', '', $head->date->getFieldValue() ) )
             : time();
-        $mail->date = date( 'Y-m-d H:i:s', $time );
-        $mail->subject = ( isset( $head->subject ) )
+        $message->date = date( 'Y-m-d H:i:s', $time );
+        $message->subject = ( isset( $head->subject ) )
             ? $head->subject->getFieldValue()
             : NULL;
         // Try to get the from address and name
         $from = $this->getAddresses( $head, 'from' );
-        $mail->fromName = ( $from )
+        $message->fromName = ( $from )
             ? $from[ 0 ]->getName()
             : NULL;
-        $mail->fromAddress = ( $from )
+        $message->fromAddress = ( $from )
             ? $from[ 0 ]->getEmail()
             : NULL;
         // The next two fields are the remaining addresses
-        $mail->to = ( isset( $head->to ) )
+        $message->to = ( isset( $head->to ) )
             ? $this->getAddresses( $head, 'to' )
             : [];
-        $mail->toString = ( isset( $head->to ) )
+        $message->toString = ( isset( $head->to ) )
             ? $head->to->getFieldValue()
             : '';
-        $mail->cc = ( isset( $head->cc ) )
+        $message->cc = ( isset( $head->cc ) )
             ? $this->getAddresses( $head, 'cc' )
             : [];
         // This is a message ID that the message is replying to
-        $mail->inReplyTo = ( isset( $head->inReplyTo ) )
+        $message->inReplyTo = ( isset( $head->inReplyTo ) )
             ? $head->inReplyTo->getFieldValue()
             : NULL;
+        // Set an internal reference to the IMAP protocol message
+        $message->setImapMessage( $messageInfo->message );
 
         // If this is NOT a multipart message, store the plain text
         if ( ! $messageInfo->message->isMultipart() ) {
-            $mail->textPlain = $this->convertContent(
+            $message->textPlain = $this->convertContent(
                 $messageInfo->message->getContent(),
                 $messageInfo->message->getHeaders() );
-            return $mail;
+            return $message;
         }
 
-        // Add all of the mail parts. This will save attachments to
-        // the mail object. We can iterate over the Message object
+        // Add all of the message parts. This will save attachments to
+        // the message object. We can iterate over the Message object
         // and get each part that way.
         foreach ( $messageInfo->message as $part ) {
             $partHead = $part->getHeaders();
+            $contentType = ( $partHead->has( 'content-type' ) )
+                ? $partHead->get( 'content-type' )->getType()
+                : NULL;
 
-            // If it's a file attachment we want to process all of
-            // the attachments and save them to $mail->attachments.
-            // Should this check agains 'xAttachmentId'? Should this
-            // just trigger for anything that isn't text?
-            // @TODO
-            if ( $partHead->has( 'x-attachment-id' )
-                || $partHead->has( 'content-disposition' ) )
-            {
-                // Get filename?
-                // Get content-type? Where is name for file?
-                // $attachment = $this->processAttachment()
-                // if ( $attachment ) $mail->attachments[] = $attachment;
-                //if ( $h->has( 'xAttachmentId' ) ) {
-                //    file_put_contents(
-                //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
-                //        base64_decode( $a->getContent() ) );
-                //}
+            // Check to see if this message is a container for sub-parts.
+            // If it is we want to process those subparts.
+            if ( strtolower( $contentType ) === 'message/rfc822' ) {
+                $part = new Part([
+                    'raw' => $part->getContent()
+                ]);
             }
-            // Check if the part is text/plain or text/html and save
-            // those as properties on $mail.
-            else {
-                $this->processContent( $mail, $part );
-            }
+
+            $this->processPart( $message, $part );
         }
 
-        return $mail;
+        return $message;
     }
 
     /**
@@ -410,36 +397,82 @@ public $contentTypesArray = [];
         return $addresses;
     }
 
-    protected function processContent( &$mail, $part )
+    protected function processPart( &$message, $part, $headers = NULL, $content = NULL )
     {
+        $headers = $headers ?: $part->getHeaders();
+
+        // If it's a file attachment we want to process all of
+        // the attachments and save them to $message->attachments.
+        if ( $headers->has( 'x-attachment-id' )
+            || $headers->has( 'content-disposition' ) )
+        {
+            $this->processAttachment( $message, $part );
+            // Get filename?
+            // Get content-type? Where is name for file?
+            // $attachment = $this->processAttachment()
+            // if ( $attachment ) $message->attachments[] = $attachment;
+            //if ( $h->has( 'xAttachmentId' ) ) {
+            //    file_put_contents(
+            //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
+            //        base64_decode( $a->getContent() ) );
+            //}
+        }
+        // Check if the part is text/plain or text/html and save
+        // those as properties on $message.
+        else {
+            $this->processContent( $message, $part );
+        }
+    }
+
+    protected function processContent( &$message, $part )
+    {
+        $textTypes = [
+            Mime\Mime::TYPE_TEXT,
+            Mime\Mime::TYPE_HTML
+        ];
+        $multipartTypes = [
+            Mime\Mime::MULTIPART_MIXED,
+            Mime\Mime::MULTIPART_ALTERNATIVE
+        ];
         $contentType = $part->getHeaderField( 'content-type' );
 
-        if ( $contentType === Mime\Mime::MULTIPART_ALTERNATIVE ) {
+        if ( in_array( $contentType, $multipartTypes ) ) {
             $boundary = $part->getHeaderField( 'content-type', 'boundary' );
 
             if ( $boundary ) {
-                $subparts = Mime\Decode::splitMessageStruct(
+                $subParts = Mime\Decode::splitMessageStruct(
                     $part->getContent(),
                     $boundary );
 
-                foreach ( $subparts as $subpart ) {
-                    $typeHeader = $subpart[ 'header' ]->get( 'content-type' );
-                    $charset = $typeHeader->getParameter( 'charset' );
-                    $this->processTextContent(
-                        $mail,
-                        $typeHeader->getType(),
-                        $this->convertContent(
-                            $subpart[ 'body' ],
-                            $subpart[ 'header' ] ),
-                        $typeHeader->getParameter( 'charset' ));
+                foreach ( $subParts as $subPart ) {
+                    $typeHeader = $subPart[ 'header' ]->get( 'content-type' );
+                    $subContentType = $typeHeader->getType();
+
+                    // If it's an attachment, run it through the attachment
+                    // processor, otherwise treat it like text.
+                    if ( in_array( $subContentType, $textTypes ) ) {
+                        $this->processTextContent(
+                            $message,
+                            $typeHeader->getType(),
+                            $this->convertContent(
+                                $subPart[ 'body' ],
+                                $subPart[ 'header' ] ),
+                            $typeHeader->getParameter( 'charset' ));
+                    }
+                    else {
+                        $this->processAttachment(
+                            $message,
+                            new Part([
+                                'content' => $subPart[ 'body' ],
+                                'headers' => $subPart[ 'header' ]
+                            ]));
+                    }
                 }
             }
         }
-        elseif ( $contentType === Mime\Mime::TYPE_TEXT
-            || $contentType === Mime\Mime::TYPE_HTML )
-        {
+        elseif ( in_array( $contentType, $textTypes ) ) {
             $this->processTextContent(
-                $mail,
+                $message,
                 $contentType,
                 $this->convertContent( $part->getContent(), $part->getHeaders() ),
                 $part->getHeaderField( 'content-type', 'charset' ));
@@ -451,42 +484,81 @@ public $contentTypesArray = [];
         }
     }
 
-    protected function processTextContent( &$mail, $contentType, $content, $charset )
+    protected function processTextContent( &$message, $contentType, $content, $charset )
     {
         if ( $contentType === Mime\Mime::TYPE_TEXT ) {
-            $mail->textPlain = $this->convertEncoding( $content, $charset, 'UTF-8' );
+            $message->textPlain .= $this->convertEncoding( $content, $charset, 'UTF-8' );
         }
         else if ( $contentType === Mime\Mime::TYPE_HTML ) {
-            $mail->textHtml = $this->convertEncoding( $content, $charset, 'UTF-8' );
+            $message->textHtml .= $this->convertEncoding( $content, $charset, 'UTF-8' );
         }
     }
 
+    protected function processAttachment( &$message, $part )
+    {
+        $name = NULL;
+        $filename = NULL;
+        $attachment = new Attachment();
+        $headers = $part->getHeaders();
+
+        // Get the filename and/or name for the attachment. Try the
+        // disposition first.
+        if ( $headers->has( 'content-disposition' ) ) {
+            $name = $part->getHeaderField( 'content-disposition', 'name' );
+            $filename = $part->getHeaderField( 'content-disposition', 'filename' );
+        }
+
+        if ( $headers->has( 'content-type' ) ) {
+            $name = $name ?: $part->getHeaderField( 'content-type', 'name' );
+            $filename = $filename ?: $part->getHeaderField( 'content-type', 'filename' );
+        }
+
+        if ( ! $filename ) {
+            $filename = $name;
+        }
+
+        if ( ! $filename && ! $name ) {
+            print_r($part);
+            exit;
+        }
+
+        if ( ! $filename ) {
+            $filename = 'unknown';
+        }
+
+        return;
+
+        // Content-Disposition has filename, Content-Type has name
+        // Look to Content-Type for something in the event that the
+        // Disposition is not present
+
+        // If we are fortunate enough to get an attachment ID, then
+        // use that. Otherwise we want to create on in a deterministic
+        // way.
+        $attachmentId = ( $headers->has( 'x-attachment-id' ) )
+            ? trim( $headers->get( 'x-attachment-id' )->getFieldValue(), " <>" )
+            : $this->generateAttachmentId( $params, $message, $part );
+    }
+
     /**
-     * Create an ID for a mail attachment. This takes the attributes name,
-     * date, filename, etc and hashes the result.
+     * Create an ID for a message attachment. This takes the attributes
+     * name, date, filename, etc and hashes the result.
      * @param array $params
      * @return string
      */
-    protected function generateAttachmentId( $params, $mail, $partNum )
+    protected function generateAttachmentId( $params, $message, $partNum )
     {
-        // If both are missing, then this isn't an attachment
-        if ( ! isset( $params[ 'filename' ] )
-            && ! isset( $params[ 'name' ] ) )
-        {
-            return NULL;
-        }
-
         // Unique ID is a concatenation of the unique ID and a
         // hash of the combined date, from address, subject line,
         // part number, and message ID.
         return md5(
             sprintf(
                 "%s-%s-%s-%s-%s",
-                $mail->date,
-                $mail->fromAddress,
-                $mail->subject,
+                $message->date,
+                $message->fromAddress,
+                $message->subject,
                 $partNum,
-                $mail->messageId
+                $message->messageId
             ));
     }
 

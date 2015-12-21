@@ -4,26 +4,33 @@ namespace PhpImap;
 
 use PhpImap\Attachment;
 
-class Mail
+class Message
 {
 	public $id;
-	public $date;
-	public $subject;
 	public $to = [];
 	public $cc = [];
-    public $toString;
-    public $fromName;
-    public $textHtml;
-    public $messageId;
-    public $textPlain;
-    public $fromAddress;
-	public $inReplyTo = [];
+    public $date = "";
+    public $subject = "";
+    public $toString = "";
+    public $fromName = "";
+    public $textHtml = "";
+    public $textPlain = "";
+    public $messageId = "";
+    public $inReplyTo = [];
+    public $fromAddress = "";
+
+    // Reference to IMAP message object
+    private $imapMessage;
 
 	/**
      * @var Attachment []
      */
 	protected $attachments = [];
 
+    /**
+     * Store a new attachment to the internal array.
+     * @param Attachment $attachment
+     */
 	public function addAttachment( Attachment $attachment )
     {
 		$this->attachments[ $attachment->id ] = $attachment;
@@ -36,6 +43,16 @@ class Mail
     {
 		return $this->attachments;
 	}
+
+    public function setImapMessage( $imapMessage )
+    {
+        $this->imapMessage = $imapMessage;
+    }
+
+    public function getImapMessage()
+    {
+        return $this->imapMessage;
+    }
 
 	/**
 	 * Get array of internal HTML links placeholders

@@ -59,7 +59,12 @@ $messageIds = $mailbox->search( 'ALL' );
 $count = count( $messageIds );
 $mailbox->debug( "Fetched $count message IDs" );
 
+$startFrom = 132;
+
 foreach ( $messageIds as $messageId ) {
+    if ( $messageId < $startFrom ) {
+        continue;
+    }
     $mailbox->debug( "Fetching message $index of $count" );
     // Get the info, headers, and flags
     $info = $mailbox->getMessageInfo( $messageId );
