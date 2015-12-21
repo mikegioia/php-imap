@@ -59,10 +59,11 @@ $messageIds = $mailbox->search( 'ALL' );
 $count = count( $messageIds );
 $mailbox->debug( "Fetched $count message IDs" );
 
-$startFrom = 132;
+$startFrom = 291;
 
 foreach ( $messageIds as $messageId ) {
     if ( $messageId < $startFrom ) {
+        $index++;
         continue;
     }
     $mailbox->debug( "Fetching message $index of $count" );

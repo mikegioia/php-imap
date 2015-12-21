@@ -432,6 +432,7 @@ class Mailbox
         ];
         $multipartTypes = [
             Mime\Mime::MULTIPART_MIXED,
+            Mime\Mime::MULTIPART_RELATED,
             Mime\Mime::MULTIPART_ALTERNATIVE
         ];
         $contentType = $part->getHeaderField( 'content-type' );
@@ -440,33 +441,18 @@ class Mailbox
             $boundary = $part->getHeaderField( 'content-type', 'boundary' );
 
             if ( $boundary ) {
-                $subParts = Mime\Decode::splitMessageStruct(
+                $subStructs = Mime\Decode::splitMessageStruct(
                     $part->getContent(),
                     $boundary );
 
-                foreach ( $subParts as $subPart ) {
-                    $typeHeader = $subPart[ 'header' ]->get( 'content-type' );
-                    $subContentType = $typeHeader->getType();
+                foreach ( $subStructs as $subStruct ) {
+                    $subPart = new Part([
+                        'content' => $subStruct[ 'body' ],
+                        'headers' => $subStruct[ 'header' ]
+                    ]);
 
-                    // If it's an attachment, run it through the attachment
-                    // processor, otherwise treat it like text.
-                    if ( in_array( $subContentType, $textTypes ) ) {
-                        $this->processTextContent(
-                            $message,
-                            $typeHeader->getType(),
-                            $this->convertContent(
-                                $subPart[ 'body' ],
-                                $subPart[ 'header' ] ),
-                            $typeHeader->getParameter( 'charset' ));
-                    }
-                    else {
-                        $this->processAttachment(
-                            $message,
-                            new Part([
-                                'content' => $subPart[ 'body' ],
-                                'headers' => $subPart[ 'header' ]
-                            ]));
-                    }
+                    // Recursive call
+                    $this->processContent( $message, $subPart );
                 }
             }
         }
@@ -478,9 +464,7 @@ class Mailbox
                 $part->getHeaderField( 'content-type', 'charset' ));
         }
         else {
-            echo "NEW CONTENT TYPE FOUND\n";
-            print_r($part);
-            exit;
+            $this->processAttachment( $message, $part );
         }
     }
 
@@ -521,7 +505,7 @@ class Mailbox
             print_r($part);
             exit;
         }
-
+echo $filename, "\n";
         if ( ! $filename ) {
             $filename = 'unknown';
         }
