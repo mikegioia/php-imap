@@ -6,6 +6,7 @@ use stdClass
   , Exception
   , Zend\Mime
   , PhpImap\Imap
+  , PhpImap\File
   , PhpImap\Message
   , PhpImap\Attachment
   , Zend\Mail\Storage\Part
@@ -352,7 +353,7 @@ class Mailbox
 
         // If this is NOT a multipart message, store the plain text
         if ( ! $messageInfo->message->isMultipart() ) {
-            $message->textPlain = $this->convertContent(
+            $message->textPlain = self::convertContent(
                 $messageInfo->message->getContent(),
                 $messageInfo->message->getHeaders() );
             return $message;
@@ -405,7 +406,7 @@ class Mailbox
         return $addresses;
     }
 
-    protected function processPart( &$message, $part, $headers = NULL, $content = NULL )
+    protected function processPart( Message &$message, Part $part )
     {
         $textTypes = [
             Mime\Mime::TYPE_TEXT,
@@ -429,7 +430,7 @@ class Mailbox
         }
     }
 
-    protected function processContent( &$message, $part )
+    protected function processContent( Message &$message, Part $part )
     {
         $textTypes = [
             Mime\Mime::TYPE_TEXT,
@@ -456,7 +457,6 @@ class Mailbox
                         'content' => $subStruct[ 'body' ],
                         'headers' => $subStruct[ 'header' ]
                     ]);
-
                     // Recursive call
                     $subPart->partNum = $part->partNum .".". $subPartNum++;
                     $this->processContent( $message, $subPart );
@@ -467,7 +467,7 @@ class Mailbox
             $this->processTextContent(
                 $message,
                 $contentType,
-                $this->convertContent( $part->getContent(), $part->getHeaders() ),
+                self::convertContent( $part->getContent(), $part->getHeaders() ),
                 $part->getHeaderField( 'content-type', 'charset' ));
         }
         else {
@@ -475,23 +475,23 @@ class Mailbox
         }
     }
 
-    protected function processTextContent( &$message, $contentType, $content, $charset )
+    protected function processTextContent( Message &$message, $contentType, $content, $charset )
     {
         if ( $contentType === Mime\Mime::TYPE_TEXT ) {
-            $message->textPlain .= $this->convertEncoding( $content, $charset, 'UTF-8' );
+            $message->textPlain .= File::convertEncoding( $content, $charset, 'UTF-8' );
         }
         elseif ( $contentType === Mime\Mime::TYPE_HTML ) {
-            $message->textHtml .= $this->convertEncoding( $content, $charset, 'UTF-8' );
+            $message->textHtml .= File::convertEncoding( $content, $charset, 'UTF-8' );
         }
     }
 
-    protected function processAttachment( &$message, $part )
+    protected function processAttachment( Message &$message, Part $part )
     {
         $name = NULL;
         $filename = NULL;
         $contentType = NULL;
-        $attachment = new Attachment();
         $headers = $part->getHeaders();
+        $attachment = new Attachment( $part );
 
         // Get the filename and/or name for the attachment. Try the
         // disposition first.
@@ -506,6 +506,10 @@ class Mailbox
             $filename = $filename ?: $part->getHeaderField( 'content-type', 'filename' );
         }
 
+        // Store this before overwriting
+        $attachment->origName = $name;
+        $attachment->origFilename = $filename;
+
         // Certain mime types don't provide name info but we can try
         // to infer it from the mime type.
         if ( ! $filename ) {
@@ -516,7 +520,7 @@ class Mailbox
                 $filename = trim( $part->getHeaderField( 'x-attachment-id' ), " <>" );
             }
             elseif ( $contentType === 'text/calendar' ) {
-                $filename = 'event.ical';
+                $filename = 'event.ics';
             }
             
             if ( ! $filename ) {
@@ -531,77 +535,47 @@ class Mailbox
             exit;
         }
 
-        // Add a default filename and if an extension is missing, try
-        // to add one.
         if ( ! $filename ) {
-            // @TODO
             $filename = 'unknown';
         }
 
-        return;
+        // Try to add an extension if it's missing one
+        File::addExtensionIfMissing( $filename, $contentType );
+
+        // @TODO REMOVE THIS, IT'S FOR TESTING
+        $temp = "unknown";
+        File::addExtensionIfMissing( $temp, $contentType );
+
+        if ( $temp === "unknown"
+            && ! in_array( $contentType, [
+                'text/x-c++',
+                'application/vnd.ms-excel.sheet.macroenabled.12'
+            ] ) )
+        {
+            echo "FOUND NEW CONTENT TYPE WE DON'T MATCH EXTENSION FOR:";
+            echo $filename, "\n", $contentType, "\n";
+            exit;
+        }
 
         // If we are fortunate enough to get an attachment ID, then
         // use that. Otherwise we want to create on in a deterministic
         // way.
-        $attachment->generateId( $message, $part );
-        $attachment->name = $filename;
-        $attachment->origName = $name;
-        $attachment->origFileName = $filename;
-        $this->debug( "New attachment created" );
+        $attachment->name = $name;
+        $attachment->filename = $filename;
+        $attachment->generateId( $message );
 
         // Attachments are saved in YYYY/MM directories
-        if ( $this->attachmentsDir) {
-            $replace = [
-                '/\s/' => '_',
-                '/[^0-9a-zа-яіїє_\.]/iu' => '',
-                '/_+/' => '_',
-                '/(^_)|(_$)/' => ''
-            ];
-            $fileSysName = preg_replace(
-                '~[\\\\/]~',
-                '',
-                $mail->id .'_'. $attachment->id .'_'. preg_replace(
-                    array_keys( $replace ),
-                    $replace,
-                    $fileName
-                ));
-            // Truncate the sys name if it's too long. This will throw an
-            // error in file_put_contents.
-            $fileSysName = substr( $fileSysName, 0, 250 );
-            // Create the YYYY/MM directory to put the attachment into
-            $fullDatePath = sprintf(
-                "%s%s%s%s%s",
-                $this->attachmentsDir,
-                DIRECTORY_SEPARATOR,
-                date( 'Y', strtotime( $mail->date ) ),
-                DIRECTORY_SEPARATOR,
-                date( 'm', strtotime( $mail->date ) ));
-            @mkdir( $fullDatePath, 0755, TRUE );
-            $attachment->filePath = $fullDatePath
-                . DIRECTORY_SEPARATOR
-                . $fileSysName;
+        if ( $this->attachmentsDir ) {
+            $attachment->generateFilepath( $message, $this->attachmentsDir );
             $this->debug( "Before writing attachment to disk" );
-            file_put_contents( $attachment->filePath, $data );
+            $attachment->saveToFile();
             $this->debug( "After file_put_contents finished" );
         }
 
-
-        // Get content-type? Where is name for file?
-        // $attachment = $this->processAttachment()
-        // if ( $attachment ) $message->attachments[] = $attachment;
-        //if ( $h->has( 'xAttachmentId' ) ) {
-        //    file_put_contents(
-        //        '/home/mike/Desktop/'. $h->get( 'xAttachmentId' )->getFieldValue() .".jpg",
-        //        base64_decode( $a->getContent() ) );
-        //}
+        $this->debug( "New attachment created" );
     }
 
-    protected function newAttachment()
-    {
-
-    }
-
-    protected function convertContent( $content, $headers )
+    static public function convertContent( $content, $headers, $failOnNoEncode = FALSE )
     {
         $data = NULL;
 
@@ -617,49 +591,27 @@ class Mailbox
                     $content );
                 $data = base64_decode( $data );
             }
-            else if ( $encoding === 'quoted-printable' ) {
+            elseif ( $encoding === '7bit' ) {
+                $data = File::decode7bit( $content );
+            }
+            elseif ( $encoding === '8bit' ) {
+                $data = $content;
+            }
+            elseif ( $encoding === 'quoted-printable' ) {
                 $data = quoted_printable_decode( $content );
             }
         }
 
         if ( is_null( $data ) ) {
+            if ( $failOnNoEncode === TRUE ) {
+                print_r($headers);
+                exit('what the?');
+            }
+
             $data = $content;
         }
 
         return $data;
-    }
-
-    /**
-     * Converts a string from one encoding to another.
-     * @param string $string
-     * @param string $fromEncoding
-     * @param string $toEncoding
-     * @return string Converted string if conversion was successful, or the
-     *   original string if not
-     */
-    protected function convertEncoding( $string, $fromEncoding, $toEncoding )
-    {
-        if ( ! $fromEncoding ) {
-            return $string;
-        }
-
-        $convertedString = NULL;
-
-        if ( $string && $fromEncoding != $toEncoding ) {
-            $convertedString = @iconv(
-                $fromEncoding,
-                $toEncoding . '//IGNORE',
-                $string );
-
-            if ( ! $convertedString && extension_loaded( 'mbstring' ) ) {
-                $convertedString = @mb_convert_encoding(
-                    $string,
-                    $toEncoding,
-                    $fromEncoding );
-            }
-        }
-
-        return $convertedString ?: $string;
     }
 
     public function debug( $message )
@@ -671,13 +623,16 @@ class Mailbox
         $date = new \DateTime();
 
         echo sprintf(
-            "[%s] %s MB peak, %s MB cur -- %s%s",
+            "[%s] %s MB peak, %s MB real, %s MB cur -- %s%s",
             $date->format( 'Y-m-d H:i:s' ),
             number_format(
                 memory_get_peak_usage( TRUE ) / 1024 / 1024,
                 2 ),
             number_format(
                 memory_get_usage( TRUE ) / 1024 / 1024,
+                2 ),
+            number_format(
+                memory_get_usage() / 1024 / 1024,
                 2 ),
             $message,
             PHP_EOL );
@@ -687,230 +642,4 @@ class Mailbox
     {
         $this->disconnect();
     }
-
-/*
-    protected function initMailPart(
-        Mail $mail,
-        $partStructure,
-        $partNum,
-        $markAsSeen = TRUE )
-    {
-        $params = [];
-        $options = FT_UID;
-
-        if ( ! $markAsSeen) {
-            $options |= FT_PEEK;
-        }
-
-        $this->debug( "Before fetching IMAP body ($partNum)" );
-        $data = ( $partNum )
-            ? imap_fetchbody(
-                $this->getImapStream(),
-                $mail->id,
-                $partNum,
-                $options )
-            : imap_body( $this->getImapStream(), $mail->id, $options );
-
-        if ( $partStructure->encoding == 1 ) {
-            $data = imap_utf8( $data );
-        }
-        elseif ( $partStructure->encoding == 2 ) {
-            $data = imap_binary( $data );
-        }
-        elseif ( $partStructure->encoding == 3 ) {
-            // https://github.com/barbushin/php-imap/issues/88
-            $data = preg_replace( '~[^a-zA-Z0-9+=/]+~s', '', $data );
-            $data = imap_base64( $data );
-        }
-        elseif ( $partStructure->encoding == 4 ) {
-            $data = quoted_printable_decode( $data );
-        }
-
-        if ( ! empty( $partStructure->parameters ) ) {
-            foreach ( $partStructure->parameters as $param ) {
-                $params[ strtolower( $param->attribute ) ] = $param->value;
-            }
-        }
-
-        if ( ! empty( $partStructure->dparameters ) ) {
-            foreach ( $partStructure->dparameters as $param ) {
-                $matched = preg_match(
-                    '~^(.*?)\*~',
-                    $param->attribute,
-                    $matches );
-                $paramName = strtolower(
-                     ( $matched ) ? $matches[ 1 ] : $param->attribute );
-
-                if ( isset( $params[ $paramName ] ) ) {
-                    $params[ $paramName ] .= $param->value;
-                }
-                else {
-                    $params[ $paramName ] = $param->value;
-                }
-            }
-        }
-
-        // Process attachments. This will look for an ID saved to the mail part
-        // and if one doesn't exist, it'll be created. The created IDs should
-        // be reproducible.
-        $this->debug( "After processing data" );
-        $attachmentId = ( $partStructure->ifid )
-            ? trim( $partStructure->id, " <>" )
-            : $this->generateAttachmentId( $params, $mail, $partNum );
-        $this->debug( "Generated attachment ID" );
-
-        if ( $attachmentId ) {
-            if ( empty( $params[ 'filename' ] ) && empty( $params[ 'name' ] ) ) {
-                $fileName = $attachmentId .'.'. strtolower( $partStructure->subtype );
-            }
-            else {
-                $fileName = ( ! empty( $params[ 'filename' ] ) )
-                    ? $params[ 'filename' ]
-                    : $params[ 'name' ];
-                $fileName = $this->decodeMimeStr( $fileName, $this->serverEncoding );
-                $fileName = $this->decodeRFC2231( $fileName, $this->serverEncoding );
-            }
-
-            $this->debug( "Set up filename for attachment" );
-            $attachment = new Attachment();
-            $attachment->name = $fileName;
-            $attachment->id = $attachmentId;
-            $attachment->origName = ( ! empty( $params[ 'name' ] ) )
-                ? $params[ 'name' ]
-                : NULL;
-            $attachment->origFileName = ( ! empty( $params[ 'filename' ] ) )
-                ? $params[ 'filename' ]
-                : NULL;
-            $this->debug( "New attachment created" );
-
-            // Attachments are saved in YYYY/MM directories
-            if ( $this->attachmentsDir) {
-                $replace = [
-                    '/\s/' => '_',
-                    '/[^0-9a-zа-яіїє_\.]/iu' => '',
-                    '/_+/' => '_',
-                    '/(^_)|(_$)/' => ''
-                ];
-                $fileSysName = preg_replace(
-                    '~[\\\\/]~',
-                    '',
-                    $mail->id .'_'. $attachmentId .'_'. preg_replace(
-                        array_keys( $replace ),
-                        $replace,
-                        $fileName
-                    ));
-                // Truncate the sys name if it's too long. This will throw an
-                // error in file_put_contents.
-                $fileSysName = substr( $fileSysName, 0, 250 );
-                // Create the YYYY/MM directory to put the attachment into
-                $fullDatePath = sprintf(
-                    "%s%s%s%s%s",
-                    $this->attachmentsDir,
-                    DIRECTORY_SEPARATOR,
-                    date( 'Y', strtotime( $mail->date ) ),
-                    DIRECTORY_SEPARATOR,
-                    date( 'm', strtotime( $mail->date ) ));
-                @mkdir( $fullDatePath, 0755, TRUE );
-                $attachment->filePath = $fullDatePath
-                    . DIRECTORY_SEPARATOR
-                    . $fileSysName;
-                $this->debug( "Before writing attachment to disk" );
-                file_put_contents( $attachment->filePath, $data );
-                $this->debug( "After file_put_contents finished" );
-            }
-
-            $mail->addAttachment( $attachment );
-        }
-        else {
-            if ( ! empty( $params[ 'charset' ] ) ) {
-                $data = $this->convertStringEncoding(
-                    $data,
-                    $params[ 'charset' ],
-                    $this->serverEncoding );
-            }
-
-            if ( $partStructure->type === 0 && $data ) {
-                if ( strtolower( $partStructure->subtype ) == 'plain' ) {
-                    $mail->textPlain .= $data;
-                }
-                else {
-                    $mail->textHtml .= $data;
-                }
-            }
-            elseif ( $partStructure->type == 2 && $data ) {
-                $mail->textPlain .= trim( $data );
-            }
-        }
-
-        unset( $data );
-        $this->debug( "Unset data (imap_body) variable" );
-
-        if ( ! empty( $partStructure->parts ) ) {
-            foreach ( $partStructure->parts as $subPartNum => $subPartStructure ) {
-                $this->debug( "Recursively calling initMailPart" );
-
-                if ( $partStructure->type == 2
-                    && $partStructure->subtype == 'RFC822' )
-                {
-                    $this->initMailPart(
-                        $mail,
-                        $subPartStructure,
-                        $partNum,
-                        $markAsSeen );
-                }
-                else {
-                    $this->initMailPart(
-                        $mail,
-                        $subPartStructure,
-                        $partNum .'.'. ( $subPartNum + 1 ),
-                        $markAsSeen );
-                }
-            }
-        }
-    }
-
-    protected function decodeMimeStr( $string, $charset = 'utf-8' )
-    {
-        $newString = '';
-        $elements = imap_mime_header_decode( $string );
-
-        for ( $i = 0; $i < count( $elements ); $i++ ) {
-            if ( $elements[ $i ]->charset == 'default' ) {
-                $elements[ $i ]->charset = 'iso-8859-1';
-            }
-
-            $newString .= $this->convertStringEncoding(
-                $elements[ $i ]->text,
-                $elements[ $i ]->charset,
-                $charset );
-        }
-
-        return $newString;
-    }
-
-    function isUrlEncoded( $string )
-    {
-        $hasInvalidChars = preg_match( '#[^%a-zA-Z0-9\-_\.\+]#', $string );
-        $hasEscapedChars = preg_match( '#%[a-zA-Z0-9]{2}#', $string );
-
-        return ! $hasInvalidChars && $hasEscapedChars;
-    }
-
-    protected function decodeRFC2231( $string, $charset = 'utf-8' )
-    {
-        if ( preg_match( "/^(.*?)'.*?'(.*?)$/", $string, $matches ) ) {
-            $data = $matches[ 2 ];
-            $encoding = $matches[ 1 ];
-
-            if ( $this->isUrlEncoded( $data ) ) {
-                $string = $this->convertStringEncoding(
-                    urldecode( $data ),
-                    $encoding,
-                    $charset );
-            }
-        }
-
-        return $string;
-    }
-*/
 }

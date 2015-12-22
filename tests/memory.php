@@ -24,7 +24,7 @@ if ( ! file_exists( __DIR__ . '/secret.ini' ) ) {
 
 // Create attachments folder if it doesn't exist
 if ( ! file_exists( __DIR__ .'/attachments' ) ) {
-    mkdir( __DIR__ .'/attachments', TRUE );
+    mkdir( __DIR__ .'/attachments', 0755, TRUE );
 }
 
 if ( isset( $argv, $argv[ 1 ] ) && $argv[ 1 ] == 'ps' ):
@@ -61,7 +61,7 @@ $messageIds = $mailbox->search( 'ALL' );
 $count = count( $messageIds );
 $mailbox->debug( "Fetched $count message IDs" );
 
-$startFrom = 6849;//$startFrom = 640;
+$startFrom = 2765;//$startFrom = 640;
 
 foreach ( $messageIds as $messageId ) {
     if ( $messageId < $startFrom ) {
