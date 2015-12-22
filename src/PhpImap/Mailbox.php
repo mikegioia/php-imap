@@ -277,6 +277,11 @@ class Mailbox
             $messageInfo->headers->$key = ( $headers->has( $field ) )
                 ? $headers->get( $field )
                 : NULL;
+            // We only want one in case, say, subject came in twice
+            if ( count( $messageInfo->headers->$key ) > 1 ) {
+                $messageInfo->headers->$key =
+                    current( $messageInfo->headers->$key );
+            }
         }
 
         // Add in the flags
@@ -513,14 +518,16 @@ class Mailbox
             elseif ( $contentType === 'text/calendar' ) {
                 $filename = 'event.ical';
             }
-            else {
+            
+            if ( ! $filename ) {
                 $filename = $name;
             }
         }
 
         if ( ! $filename ) {
             echo "NO FILENAME FOR ATTACHMENT: \n";
-            print_r($part);
+            print_r($headers);
+            //print_r($part);
             exit;
         }
 

@@ -27,19 +27,21 @@ if ( ! file_exists( __DIR__ .'/attachments' ) ) {
     mkdir( __DIR__ .'/attachments', TRUE );
 }
 
-$pid = getmypid();
-$message = <<<STR
+if ( isset( $argv, $argv[ 1 ] ) && $argv[ 1 ] == 'ps' ):
+    $pid = getmypid();
+    $message = <<<STR
 My PID is: $pid
 Run this in another terminal:
 $> watch -n 1 ps -o vsz $pid
-
+    
 STR;
-echo $message;
-for ( $i = 9; $i >= 1; $i-- ) {
-    echo "\r$i";
-    sleep( 1 );
-}
-echo "\rStarting...", PHP_EOL;
+    echo $message;
+    for ( $i = 9; $i >= 1; $i-- ) {
+        echo "\r$i";
+        sleep( 1 );
+    }
+    echo "\rStarting...", PHP_EOL;
+endif;
 
 $index = 1;
 $config = parse_ini_file( __DIR__ .'/secret.ini' );
@@ -59,7 +61,7 @@ $messageIds = $mailbox->search( 'ALL' );
 $count = count( $messageIds );
 $mailbox->debug( "Fetched $count message IDs" );
 
-$startFrom = 162;//$startFrom = 640;
+$startFrom = 6849;//$startFrom = 640;
 
 foreach ( $messageIds as $messageId ) {
     if ( $messageId < $startFrom ) {
@@ -67,12 +69,6 @@ foreach ( $messageIds as $messageId ) {
         continue;
     }
     $mailbox->debug( "Fetching message $index of $count" );
-    // Get the info, headers, and flags
-    $info = $mailbox->getMessageInfo( $messageId );
-    $mailbox->debug( "After message info was fetched" );
-    $info = NULL;
-    unset( $info );
-    $mailbox->debug( "After info was unset()" );
     // Pull the contents of the message
     $message = $mailbox->getMessage( $messageId );
     $mailbox->debug( "After message info was downloaded" );

@@ -40,19 +40,19 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mikegioia/zend-mail.git",
-                "reference": "976ef00776a25296b373f00b28ba7e380ff9486f"
+                "reference": "fe5da3bb4355f3a97cc7ed979358cd3afe531d2b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mikegioia/zend-mail/zipball/976ef00776a25296b373f00b28ba7e380ff9486f",
-                "reference": "976ef00776a25296b373f00b28ba7e380ff9486f",
+                "url": "https://api.github.com/repos/mikegioia/zend-mail/zipball/fe5da3bb4355f3a97cc7ed979358cd3afe531d2b",
+                "reference": "fe5da3bb4355f3a97cc7ed979358cd3afe531d2b",
                 "shasum": ""
             },
             "require": {
+                "mikegioia/zend-mime": "~2.5",
                 "php": ">=5.5",
                 "zendframework/zend-crypt": "~2.5",
                 "zendframework/zend-loader": "~2.5",
-                "zendframework/zend-mime": "~2.5",
                 "zendframework/zend-stdlib": "~2.5",
                 "zendframework/zend-validator": "~2.5"
             },
@@ -94,7 +94,7 @@
             "support": {
                 "source": "https://github.com/mikegioia/zend-mail/tree/master"
             },
-            "time": "2015-12-21 19:44:17"
+            "time": "2015-12-22 01:36:26"
         },
         {
             "name": "mikegioia/zend-mime",
@@ -102,12 +102,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mikegioia/zend-mime.git",
-                "reference": "78572fcc52dc5e5c1df83b5cd19087a2422fab95"
+                "reference": "41989d8984cbe70139ceb3f453d3c248898e0ae7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mikegioia/zend-mime/zipball/78572fcc52dc5e5c1df83b5cd19087a2422fab95",
-                "reference": "78572fcc52dc5e5c1df83b5cd19087a2422fab95",
+                "url": "https://api.github.com/repos/mikegioia/zend-mime/zipball/41989d8984cbe70139ceb3f453d3c248898e0ae7",
+                "reference": "41989d8984cbe70139ceb3f453d3c248898e0ae7",
                 "shasum": ""
             },
             "require": {
@@ -116,8 +116,8 @@
             },
             "require-dev": {
                 "fabpot/php-cs-fixer": "1.7.*",
-                "phpunit/phpunit": "~4.0",
-                "zendframework/zend-mail": "~2.5"
+                "mikegioia/zend-mail": "~2.5",
+                "phpunit/phpunit": "~4.0"
             },
             "suggest": {
                 "zendframework/zend-mail": "Zend\\Mail component"
@@ -151,7 +151,7 @@
             "support": {
                 "source": "https://github.com/mikegioia/zend-mime/tree/master"
             },
-            "time": "2015-12-21 19:43:56"
+            "time": "2015-12-22 00:01:45"
         },
         {
             "name": "zendframework/zend-crypt",
@@ -355,55 +355,6 @@
                 "zf2"
             ],
             "time": "2015-12-17 15:31:58"
-        },
-        {
-            "name": "zendframework/zend-mime",
-            "version": "2.5.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/zendframework/zend-mime.git",
-                "reference": "4148e39291c94ffea84c5b26a5ba69147953dcad"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/zendframework/zend-mime/zipball/4148e39291c94ffea84c5b26a5ba69147953dcad",
-                "reference": "4148e39291c94ffea84c5b26a5ba69147953dcad",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=5.3.23",
-                "zendframework/zend-stdlib": "~2.5"
-            },
-            "require-dev": {
-                "fabpot/php-cs-fixer": "1.7.*",
-                "phpunit/phpunit": "~4.0",
-                "zendframework/zend-mail": "~2.5"
-            },
-            "suggest": {
-                "zendframework/zend-mail": "Zend\\Mail component"
-            },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "2.5-dev",
-                    "dev-develop": "2.6-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Zend\\Mime\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "BSD-3-Clause"
-            ],
-            "homepage": "https://github.com/zendframework/zend-mime",
-            "keywords": [
-                "mime",
-                "zf2"
-            ],
-            "time": "2015-06-03 15:32:02"
         },
         {
             "name": "zendframework/zend-servicemanager",
