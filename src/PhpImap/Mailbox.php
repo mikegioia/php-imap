@@ -540,14 +540,51 @@ class Mailbox
 
         return;
 
-        // @TODO get the part index number?
-
         // If we are fortunate enough to get an attachment ID, then
         // use that. Otherwise we want to create on in a deterministic
         // way.
-        $attachmentId = ( $headers->has( 'x-attachment-id' ) )
-            ? trim( $part->getHeaderField( 'x-attachment-id' ), " <>" )
-            : $this->generateAttachmentId( $message, $part->partNum );
+        $attachment->generateId( $message, $part );
+        $attachment->name = $filename;
+        $attachment->origName = $name;
+        $attachment->origFileName = $filename;
+        $this->debug( "New attachment created" );
+
+        // Attachments are saved in YYYY/MM directories
+        if ( $this->attachmentsDir) {
+            $replace = [
+                '/\s/' => '_',
+                '/[^0-9a-zа-яіїє_\.]/iu' => '',
+                '/_+/' => '_',
+                '/(^_)|(_$)/' => ''
+            ];
+            $fileSysName = preg_replace(
+                '~[\\\\/]~',
+                '',
+                $mail->id .'_'. $attachment->id .'_'. preg_replace(
+                    array_keys( $replace ),
+                    $replace,
+                    $fileName
+                ));
+            // Truncate the sys name if it's too long. This will throw an
+            // error in file_put_contents.
+            $fileSysName = substr( $fileSysName, 0, 250 );
+            // Create the YYYY/MM directory to put the attachment into
+            $fullDatePath = sprintf(
+                "%s%s%s%s%s",
+                $this->attachmentsDir,
+                DIRECTORY_SEPARATOR,
+                date( 'Y', strtotime( $mail->date ) ),
+                DIRECTORY_SEPARATOR,
+                date( 'm', strtotime( $mail->date ) ));
+            @mkdir( $fullDatePath, 0755, TRUE );
+            $attachment->filePath = $fullDatePath
+                . DIRECTORY_SEPARATOR
+                . $fileSysName;
+            $this->debug( "Before writing attachment to disk" );
+            file_put_contents( $attachment->filePath, $data );
+            $this->debug( "After file_put_contents finished" );
+        }
+
 
         // Get content-type? Where is name for file?
         // $attachment = $this->processAttachment()
@@ -559,27 +596,9 @@ class Mailbox
         //}
     }
 
-    /**
-     * Create an ID for a message attachment. This takes the attributes
-     * name, date, filename, etc and hashes the result.
-     * @param Message $message
-     * @param integer $partNum
-     * @return string
-     */
-    protected function generateAttachmentId( $message, $partNum )
+    protected function newAttachment()
     {
-        // Unique ID is a concatenation of the unique ID and a
-        // hash of the combined date, from address, subject line,
-        // part number, and message ID.
-        return md5(
-            sprintf(
-                "%s-%s-%s-%s-%s",
-                $message->date,
-                $message->fromAddress,
-                $message->subject,
-                $partNum,
-                $message->messageId
-            ));
+
     }
 
     protected function convertContent( $content, $headers )
@@ -620,6 +639,10 @@ class Mailbox
      */
     protected function convertEncoding( $string, $fromEncoding, $toEncoding )
     {
+        if ( ! $fromEncoding ) {
+            return $string;
+        }
+
         $convertedString = NULL;
 
         if ( $string && $fromEncoding != $toEncoding ) {
