@@ -33,7 +33,7 @@ if ( isset( $argv, $argv[ 1 ] ) && $argv[ 1 ] == 'ps' ):
 My PID is: $pid
 Run this in another terminal:
 $> watch -n 1 ps -o vsz $pid
-    
+
 STR;
     echo $message;
     for ( $i = 9; $i >= 1; $i-- ) {
@@ -61,7 +61,7 @@ $messageIds = $mailbox->search( 'ALL' );
 $count = count( $messageIds );
 $mailbox->debug( "Fetched $count message IDs" );
 
-$startFrom = 2765;//$startFrom = 640;
+$startFrom = 5275;
 
 foreach ( $messageIds as $messageId ) {
     if ( $messageId < $startFrom ) {
