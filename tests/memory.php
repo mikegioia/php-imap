@@ -61,7 +61,7 @@ $messageIds = $mailbox->search( 'ALL' );
 $count = count( $messageIds );
 $mailbox->debug( "Fetched $count message IDs" );
 
-$startFrom = 5275;
+$startFrom = 0;
 
 foreach ( $messageIds as $messageId ) {
     if ( $messageId < $startFrom ) {

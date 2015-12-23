@@ -22,8 +22,9 @@ class File
             return NULL;
         }
 
+        $pieces = explode( '.', $filename );
         $extension = ( strpos( $filename, "." ) !== FALSE )
-            ? end( explode( '.', $filename ) )
+            ? end( $pieces )
             : NULL;
 
         if ( $extension ) {
